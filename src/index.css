@@ -1,0 +1,91 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --navy: #0b2545;
+    --blue: #1d6fb8;
+    --orange: #f5821f;
+    --bg: #f6f8fb;
+    --card: #ffffff;
+    --muted: #64748b;
+    --ok: #16a34a;
+    --warn: #f59e0b;
+    --bad: #dc2626;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-surface-bg font-sans text-ink antialiased;
+    /* Prevent the fixed bottom nav from covering the last row of content. */
+    overscroll-behavior-y: none;
+  }
+
+  /* Axis ticks, table cells and any column of numbers align on the digit grid.
+     Large standalone figures deliberately keep proportional figures. */
+  th,
+  td,
+  .recharts-cartesian-axis-tick-value {
+    font-variant-numeric: tabular-nums;
+  }
+
+  :focus-visible {
+    @apply outline-none ring-2 ring-brand-500 ring-offset-2 ring-offset-surface-bg;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-slate-300;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-slate-400;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-2xl border border-surface-line bg-surface-card shadow-card;
+  }
+
+  /* Glass is reserved for overlay surfaces (chat panel, modals) — never base cards. */
+  .glass {
+    @apply border border-white/25 bg-white/80 shadow-panel backdrop-blur-xl;
+  }
+
+  .skeleton {
+    @apply relative overflow-hidden rounded-lg bg-slate-200/70;
+  }
+  .skeleton::after {
+    @apply absolute inset-0 -translate-x-full animate-shimmer bg-gradient-to-l from-transparent via-white/70 to-transparent;
+    content: '';
+  }
+
+  /* Held during a refetch so the view never flashes back to skeletons. */
+  .is-refetching {
+    @apply pointer-events-none opacity-55 transition-opacity duration-200;
+  }
+
+  .tap {
+    @apply transition active:scale-[0.985];
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

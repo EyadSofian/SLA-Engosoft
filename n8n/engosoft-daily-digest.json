@@ -1,0 +1,157 @@
+{
+  "name": "Engosoft — تقرير يومي على تليجرام",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * *"
+            }
+          ]
+        }
+      },
+      "id": "a1000000-0000-4000-8000-000000000001",
+      "name": "كل يوم 8 صباحًا",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-620, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://jrenyjmbbizborhbwptz.supabase.co/rest/v1/dept_summary?select=*",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "YOUR_SUPABASE_ANON_KEY" },
+            { "name": "Authorization", "value": "Bearer YOUR_SUPABASE_ANON_KEY" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000002",
+      "name": "Dept Summary",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-400, 300]
+    },
+    {
+      "parameters": {
+        "url": "=https://jrenyjmbbizborhbwptz.supabase.co/rest/v1/fact_ticket?select=ticket_id&create_date=gte.{{ $now.setZone('Africa/Cairo').startOf('day').toISO() }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "YOUR_SUPABASE_ANON_KEY" },
+            { "name": "Authorization", "value": "Bearer YOUR_SUPABASE_ANON_KEY" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000003",
+      "name": "Opened Today",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-180, 300],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "url": "=https://jrenyjmbbizborhbwptz.supabase.co/rest/v1/fact_ticket?select=ticket_id&close_date=gte.{{ $now.setZone('Africa/Cairo').startOf('day').toISO() }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "YOUR_SUPABASE_ANON_KEY" },
+            { "name": "Authorization", "value": "Bearer YOUR_SUPABASE_ANON_KEY" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000004",
+      "name": "Closed Today",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [40, 300],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "url": "=https://jrenyjmbbizborhbwptz.supabase.co/rest/v1/sales_summary?select=*&month=eq.{{ $now.setZone('Africa/Cairo').startOf('month').toFormat('yyyy-MM-dd') }}&order=achieved_total.desc&limit=200",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "YOUR_SUPABASE_ANON_KEY" },
+            { "name": "Authorization", "value": "Bearer YOUR_SUPABASE_ANON_KEY" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000005",
+      "name": "Sales This Month",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [260, 300],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const nf = new Intl.NumberFormat('ar-EG-u-nu-latn', { maximumFractionDigits: 0 });\nconst n = (v) => nf.format(Math.round(Number(v) || 0));\nconst pct = (v) => (v == null ? '—' : Math.round(Number(v)) + '%');\nconst esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\n\nconst rows = (name) => $(name).all().map((i) => i.json).filter((j) => j && Object.keys(j).length);\n\nconst depts = rows('Dept Summary');\nconst opened = rows('Opened Today').length;\nconst closed = rows('Closed Today').length;\nconst sales = rows('Sales This Month');\n\nconst label = new Intl.DateTimeFormat('ar-EG-u-nu-latn', { timeZone: 'Africa/Cairo', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date());\n\nconst L = ['📊 <b>تقرير Engosoft اليومي</b> — ' + esc(label), ''];\n\nL.push('🎫 <b>التذاكر المفتوحة:</b>');\nconst byOpen = [...depts].sort((a, b) => (b.open_cnt || 0) - (a.open_cnt || 0));\nif (!byOpen.length) {\n  L.push('• مفيش بيانات أقسام.');\n} else {\n  for (const d of byOpen) {\n    const bits = [n(d.open_cnt) + ' مفتوح'];\n    if (d.unassigned_cnt > 0) bits.push(n(d.unassigned_cnt) + ' غير مُسند');\n    if (d.urgent_cnt > 0) bits.push(n(d.urgent_cnt) + ' عاجل');\n    if (d.failed_cnt > 0) bits.push(n(d.failed_cnt) + ' SLA متأخر');\n    L.push('• <b>' + esc(d.team_name) + '</b>: ' + bits.join(' · '));\n  }\n}\n\nL.push('', '🟢 <b>النهاردة:</b> اتفتح ' + n(opened) + ' · اتقفل ' + n(closed));\n\nconst critical = depts.filter((d) => (d.sla_met_pct != null && d.sla_met_pct < 80) || d.backlog_7p >= 10);\nL.push(critical.length\n  ? '🔴 <b>محتاج انتباه:</b> ' + critical.map((d) => esc(d.team_name) + ' (SLA ' + pct(d.sla_met_pct) + ')').join('، ')\n  : '🔴 <b>محتاج انتباه:</b> مفيش — كل الأقسام في المستوى.');\n\nL.push('', '💰 <b>السيلز (الشهر لحد دلوقتي) — أعلى 5:</b>');\nconst top = sales.slice(0, 5);\nif (!top.length) {\n  L.push('• مفيش مبيعات متسجّلة الشهر ده.');\n} else {\n  top.forEach((p, i) => L.push((i + 1) + '. ' + esc(p.user_name || '—') + ' — ' + n(p.achieved_total) + ' ج (' + n(p.deals_count) + ' صفقة)'));\n  const total = sales.reduce((s, p) => s + (Number(p.achieved_total) || 0), 0);\n  L.push('<i>الإجمالي: ' + n(total) + ' ج من ' + n(sales.length) + ' فرد</i>');\n}\n\nconst rated = depts.filter((d) => d.sla_met_pct != null);\nif (rated.length) {\n  const best = rated.reduce((a, b) => (b.sla_met_pct > a.sla_met_pct ? b : a));\n  const worst = rated.reduce((a, b) => (b.sla_met_pct < a.sla_met_pct ? b : a));\n  L.push('', '⭐ <b>أحسن قسم:</b> ' + esc(best.team_name) + ' (' + pct(best.sla_met_pct) + ')', '⚠️ <b>أكتر قسم متأخر:</b> ' + esc(worst.team_name) + ' (' + pct(worst.sla_met_pct) + ')');\n}\n\nlet text = L.join('\\n');\nif (text.length > 4096) text = text.slice(0, 4076) + '\\n…(اتقصّ)';\n\nreturn [{ json: { text } }];"
+      },
+      "id": "a1000000-0000-4000-8000-000000000006",
+      "name": "Build Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 300],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "={{ $json.text }}",
+        "additionalFields": {
+          "parse_mode": "HTML",
+          "disable_web_page_preview": true
+        }
+      },
+      "id": "a1000000-0000-4000-8000-000000000007",
+      "name": "Send to Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [700, 300],
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Engosoft Telegram Bot"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "كل يوم 8 صباحًا": {
+      "main": [[{ "node": "Dept Summary", "type": "main", "index": 0 }]]
+    },
+    "Dept Summary": {
+      "main": [[{ "node": "Opened Today", "type": "main", "index": 0 }]]
+    },
+    "Opened Today": {
+      "main": [[{ "node": "Closed Today", "type": "main", "index": 0 }]]
+    },
+    "Closed Today": {
+      "main": [[{ "node": "Sales This Month", "type": "main", "index": 0 }]]
+    },
+    "Sales This Month": {
+      "main": [[{ "node": "Build Message", "type": "main", "index": 0 }]]
+    },
+    "Build Message": {
+      "main": [[{ "node": "Send to Telegram", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "timezone": "Africa/Cairo",
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "pinData": {},
+  "tags": []
+}
