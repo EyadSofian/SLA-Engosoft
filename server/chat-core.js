@@ -39,8 +39,8 @@ export class ChatError extends Error {
 const CURRENCY_LABEL =
   { EGP: 'الجنيه المصري (ج.م)', USD: 'الدولار ($)', EUR: 'اليورو (€)', GBP: 'الجنيه الإسترليني (£)',
     SAR: 'الريال السعودي (ر.س)', AED: 'الدرهم (د.إ)', KWD: 'الدينار (د.ك)' }[
-    (process.env.CURRENCY ?? process.env.VITE_CURRENCY ?? 'EGP').toUpperCase()
-  ] ?? (process.env.CURRENCY ?? 'EGP');
+    (process.env.CURRENCY ?? process.env.VITE_CURRENCY ?? 'USD').toUpperCase()
+  ] ?? (process.env.CURRENCY ?? 'USD');
 
 const RESOLVED_SYSTEM_PROMPT = SYSTEM_PROMPT.replace('{{CURRENCY}}', CURRENCY_LABEL);
 

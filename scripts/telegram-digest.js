@@ -89,7 +89,7 @@ const pct = (v) => (v == null ? '—' : `${Math.round(Number(v))}%`);
 
 /** Keep in step with the dashboard's VITE_CURRENCY. */
 const MARKS = { EGP: 'ج.م', USD: '$', EUR: '€', GBP: '£', SAR: 'ر.س', AED: 'د.إ', KWD: 'د.ك' };
-const CURRENCY_CODE = (process.env.CURRENCY ?? 'EGP').toUpperCase();
+const CURRENCY_CODE = (process.env.CURRENCY ?? 'USD').toUpperCase();
 const MARK = MARKS[CURRENCY_CODE] ?? CURRENCY_CODE;
 const money = (v) =>
   ['USD', 'EUR', 'GBP'].includes(CURRENCY_CODE) ? `${MARK}${n(v)}` : `${n(v)} ${MARK}`;

@@ -43,6 +43,14 @@ It grants `SELECT` — and only `SELECT` — to the `anon` role on:
 
 The script is idempotent — re-running it changes nothing.
 
+If `dept_summary` or `sales_person_totals` don't exist yet, run
+[`supabase/create-views.sql`](supabase/create-views.sql) first — it builds both
+from the base tables and grants them to `anon`.
+
+**Currency lives in config, not in the database.** The amount columns are bare
+numbers with no currency column, so `VITE_CURRENCY` / `CURRENCY` are the single
+source of truth for the unit. Default is `USD`.
+
 ---
 
 ## 2. Environment variables
@@ -53,6 +61,7 @@ The script is idempotent — re-running it changes nothing.
 | `VITE_SUPABASE_ANON_KEY` | build time | **publishable** key (`sb_publishable_…`) |
 | `ANTHROPIC_API_KEY` | runtime, server | AI chat. Without it the chat returns a clear "not enabled" message; the rest of the dashboard works. |
 | `ANTHROPIC_MODEL` | runtime, server | optional, defaults to `claude-sonnet-5` |
+| `VITE_CURRENCY` | build time | optional, defaults to `USD`. Also set `CURRENCY` (same value, no prefix) so the digest and AI chat quote the same unit. |
 | `PORT` | runtime, server | injected by Railway |
 
 > **Never put the Supabase `secret` / `service_role` key in a `VITE_` variable.**

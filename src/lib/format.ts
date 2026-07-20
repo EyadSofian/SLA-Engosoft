@@ -26,7 +26,7 @@ const CURRENCIES: Record<string, { prefix?: string; suffix?: string }> = {
   KWD: { suffix: 'د.ك' },
 };
 
-const CURRENCY_CODE = (import.meta.env.VITE_CURRENCY ?? 'EGP').toUpperCase();
+const CURRENCY_CODE = (import.meta.env.VITE_CURRENCY ?? 'USD').toUpperCase();
 const CURRENCY = CURRENCIES[CURRENCY_CODE] ?? { suffix: CURRENCY_CODE };
 
 /** The active currency mark, e.g. `ج.م` or `$`. */
