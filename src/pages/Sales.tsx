@@ -24,9 +24,9 @@ import {
   SectionTitle,
   Skeleton,
   SkeletonCard,
-  TableWrap,
   cx,
 } from '../components/ui/primitives';
+import { PersonCard } from '../components/PersonCard';
 import { SalesTrend } from '../components/charts/SalesTrend';
 import { IconPhone } from '../components/Icons';
 
@@ -112,7 +112,13 @@ export default function Sales() {
       <div>
         <h1 className="text-xl font-extrabold text-navy">المبيعات</h1>
         <p className="mt-0.5 text-xs text-ink-muted">
-          {selected ? fmtMonth(selected) : 'بيحمّل…'}
+          {tab === 'all'
+            ? 'إجمالي كل الشهور'
+            : selected
+              ? fmtMonth(selected)
+              : sales.loading
+                ? 'بيحمّل…'
+                : 'مفيش بيانات'}
         </p>
       </div>
 
@@ -237,71 +243,39 @@ export default function Sales() {
           )}
 
           {/* ── Per-person ─────────────────────────────────────────── */}
-          <Card as="section">
+          <section>
             <SectionTitle title="الأفراد" subtitle={rows.length ? arCount(rows.length, NOUN.person) : undefined} />
             {sales.loading ? (
-              <div className="space-y-2">
-                {Array.from({ length: 5 }).map((_, i) => (
-                  <Skeleton key={i} className="h-10 w-full" />
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <SkeletonCard key={i} lines={2} />
                 ))}
               </div>
             ) : rows.length === 0 ? (
-              <EmptyState title="مفيش مبيعات في الشهر ده" hint="جرّب تختار شهر تاني من القايمة." />
+              <Card>
+                <EmptyState title="مفيش مبيعات في الشهر ده" hint="جرّب تختار شهر تاني من القايمة." />
+              </Card>
             ) : (
-              <TableWrap>
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-surface-line text-xs text-ink-muted">
-                      <th scope="col" className="px-2 py-2 text-start font-medium">#</th>
-                      <th scope="col" className="px-2 py-2 text-start font-medium">الاسم</th>
-                      <th scope="col" className="px-2 py-2 text-start font-medium">الفريق</th>
-                      <th scope="col" className="px-2 py-2 text-start font-medium">المحقّق</th>
-                      <th scope="col" className="px-2 py-2 text-start font-medium">صفقات</th>
-                      <th scope="col" className="px-2 py-2 text-start font-medium">عروض</th>
-                      <th scope="col" className="px-2 py-2 text-start font-medium">Pipeline</th>
-                      <th scope="col" className="min-w-[140px] px-2 py-2 text-start font-medium">من تارجت الفريق</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map((r, i) => {
-                      const achieved = value(r);
-                      const target = r.team_target;
-                      const pct = target && target > 0 ? (achieved / target) * 100 : null;
-                      return (
-                        <tr key={`${r.user_name}-${i}`} className="border-b border-surface-line/70 last:border-0">
-                          <td className="px-2 py-2 text-ink-faint">{i + 1}</td>
-                          <td className="max-w-[160px] truncate px-2 py-2 font-semibold text-navy">
-                            {r.user_name ?? '—'}
-                          </td>
-                          <td className="max-w-[120px] truncate px-2 py-2 text-ink-muted">{r.team_name ?? '—'}</td>
-                          <td className="whitespace-nowrap px-2 py-2 font-bold text-navy">{fmtMoney(achieved)}</td>
-                          <td className="px-2 py-2 text-ink-muted">{fmtInt(r.deals_count)}</td>
-                          <td className="px-2 py-2 text-ink-muted">{fmtInt(r.quotations_count)}</td>
-                          <td className="whitespace-nowrap px-2 py-2 text-ink-muted">{fmtMoney(r.pipeline_value)}</td>
-                          <td className="px-2 py-2">
-                            {pct == null ? (
-                              <span className="text-xs text-ink-faint">مفيش تارجت</span>
-                            ) : (
-                              <div className="flex items-center gap-2">
-                                <Meter
-                                  value={achieved}
-                                  max={target!}
-                                  tone={pct >= 100 ? 'ok' : pct >= 70 ? 'warn' : 'bad'}
-                                />
-                                <span className="w-11 shrink-0 text-xs font-bold text-ink-muted">
-                                  {fmtPct(pct, 0)}
-                                </span>
-                              </div>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </TableWrap>
+              <div className={cx('grid gap-3 sm:grid-cols-2 xl:grid-cols-3', sales.refreshing && 'is-refetching')}>
+                {rows.map((r, i) => (
+                  <PersonCard
+                    key={`${r.user_name}-${i}`}
+                    person={{
+                      rank: i + 1,
+                      name: r.user_name ?? '—',
+                      team: r.team_name,
+                      achieved: value(r),
+                      deals: r.deals_count,
+                      quotations: r.quotations_count,
+                      pipeline: r.pipeline_value,
+                      target: r.team_target,
+                    }}
+                  />
+                ))}
+              </div>
             )}
-          </Card>
+          </section>
+
 
           {/* ── Calls ──────────────────────────────────────────────── */}
           <Card as="section">
@@ -332,49 +306,45 @@ export default function Sales() {
         </>
       ) : (
         /* ── All-time leaderboard ─────────────────────────────────── */
-        <Card as="section">
-          <SectionTitle title="ترتيب كل الوقت" subtitle="من sales_person_totals" />
+        <section>
+          <SectionTitle
+            title="ترتيب كل الوقت"
+            subtitle={
+              (allTime.data ?? []).length ? arCount((allTime.data ?? []).length, NOUN.person) : undefined
+            }
+          />
           {allTime.loading ? (
-            <div className="space-y-2">
-              {Array.from({ length: 8 }).map((_, i) => (
-                <Skeleton key={i} className="h-10 w-full" />
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <SkeletonCard key={i} lines={2} />
               ))}
             </div>
           ) : allTime.error ? (
-            <ErrorState error={allTime.error} onRetry={allTime.reload} />
+            <Card>
+              <ErrorState error={allTime.error} onRetry={allTime.reload} />
+            </Card>
           ) : (allTime.data ?? []).length === 0 ? (
-            <EmptyState title="مفيش بيانات" />
+            <Card>
+              <EmptyState title="مفيش بيانات" />
+            </Card>
           ) : (
-            <TableWrap>
-              <table className={cx('w-full text-sm', allTime.refreshing && 'is-refetching')}>
-                <thead>
-                  <tr className="border-b border-surface-line text-xs text-ink-muted">
-                    <th scope="col" className="px-2 py-2 text-start font-medium">#</th>
-                    <th scope="col" className="px-2 py-2 text-start font-medium">الاسم</th>
-                    <th scope="col" className="px-2 py-2 text-start font-medium">المحقّق</th>
-                    <th scope="col" className="px-2 py-2 text-start font-medium">قبل الضريبة</th>
-                    <th scope="col" className="px-2 py-2 text-start font-medium">صفقات</th>
-                    <th scope="col" className="px-2 py-2 text-start font-medium">عروض</th>
-                    <th scope="col" className="px-2 py-2 text-start font-medium">Pipeline</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(allTime.data ?? []).map((p, i) => (
-                    <tr key={`${p.user_name}-${i}`} className="border-b border-surface-line/70 last:border-0">
-                      <td className="px-2 py-2 text-ink-faint">{i + 1}</td>
-                      <td className="max-w-[180px] truncate px-2 py-2 font-semibold text-navy">{p.user_name ?? '—'}</td>
-                      <td className="whitespace-nowrap px-2 py-2 font-bold text-navy">{fmtMoney(p.achieved_total_all)}</td>
-                      <td className="whitespace-nowrap px-2 py-2 text-ink-muted">{fmtMoney(p.achieved_untaxed_all)}</td>
-                      <td className="px-2 py-2 text-ink-muted">{fmtInt(p.deals_all)}</td>
-                      <td className="px-2 py-2 text-ink-muted">{fmtInt(p.quotations_all)}</td>
-                      <td className="whitespace-nowrap px-2 py-2 text-ink-muted">{fmtMoney(p.pipeline_all)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </TableWrap>
+            <div className={cx('grid gap-3 sm:grid-cols-2 xl:grid-cols-3', allTime.refreshing && 'is-refetching')}>
+              {(allTime.data ?? []).map((p, i) => (
+                <PersonCard
+                  key={`${p.user_name}-${i}`}
+                  person={{
+                    rank: i + 1,
+                    name: p.user_name ?? '—',
+                    achieved: p.achieved_total_all ?? 0,
+                    deals: p.deals_all,
+                    quotations: p.quotations_all,
+                    pipeline: p.pipeline_all,
+                  }}
+                />
+              ))}
+            </div>
           )}
-        </Card>
+        </section>
       )}
     </div>
   );

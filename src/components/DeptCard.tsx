@@ -30,7 +30,7 @@ export function DeptCard({ dept }: { dept: DeptSummary }) {
   return (
     <Link
       to={`/dept/${encodeURIComponent(dept.team_name)}`}
-      className="tap group card block p-4 transition hover:-translate-y-0.5 hover:border-brand-200 hover:shadow-lift"
+      className="tap group card block min-w-0 p-4 transition hover:-translate-y-0.5 hover:border-brand-200 hover:shadow-lift"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">

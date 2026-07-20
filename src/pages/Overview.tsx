@@ -161,7 +161,7 @@ export default function Overview() {
           </Card>
         ) : (
           <div className={cx('grid gap-3 lg:grid-cols-3', sales.refreshing && 'is-refetching')}>
-            <Card className="lg:col-span-1">
+            <Card className="min-w-0 lg:col-span-1">
               <p className="text-xs font-medium text-ink-muted">إجمالي المحقّق</p>
               <p className="mt-1 text-4xl font-extrabold leading-tight text-navy sm:text-5xl">
                 {fmtMoneyCompact(monthTotal)}
@@ -173,7 +173,7 @@ export default function Overview() {
               </p>
             </Card>
 
-            <Card className="lg:col-span-2">
+            <Card className="min-w-0 lg:col-span-2">
               <p className="mb-3 text-xs font-medium text-ink-muted">أعلى 3 هذا الشهر</p>
               <ol className="space-y-2.5">
                 {top3.map((p, i) => (
