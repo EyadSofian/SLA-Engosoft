@@ -10,7 +10,31 @@ const AR = 'ar-EG-u-nu-latn';
 const intFmt = new Intl.NumberFormat(AR, { maximumFractionDigits: 0 });
 const oneDp = new Intl.NumberFormat(AR, { maximumFractionDigits: 1, minimumFractionDigits: 0 });
 
-export const EGP = 'ج.م';
+/**
+ * Currency is configurable because the database doesn't record one — the
+ * amount columns are bare numbers. Set VITE_CURRENCY to switch the whole app.
+ * Symbol-prefix currencies (USD/EUR) and suffix currencies (EGP/SAR) both
+ * render in their conventional position.
+ */
+const CURRENCIES: Record<string, { prefix?: string; suffix?: string }> = {
+  EGP: { suffix: 'ج.م' },
+  USD: { prefix: '$' },
+  EUR: { prefix: '€' },
+  GBP: { prefix: '£' },
+  SAR: { suffix: 'ر.س' },
+  AED: { suffix: 'د.إ' },
+  KWD: { suffix: 'د.ك' },
+};
+
+const CURRENCY_CODE = (import.meta.env.VITE_CURRENCY ?? 'EGP').toUpperCase();
+const CURRENCY = CURRENCIES[CURRENCY_CODE] ?? { suffix: CURRENCY_CODE };
+
+/** The active currency mark, e.g. `ج.م` or `$`. */
+export const MONEY_MARK = CURRENCY.prefix ?? CURRENCY.suffix ?? '';
+
+function withCurrency(text: string): string {
+  return CURRENCY.prefix ? `${CURRENCY.prefix}${text}` : `${text} ${CURRENCY.suffix}`;
+}
 
 /** `12,480` */
 export function fmtInt(n: number | null | undefined): string {
@@ -18,19 +42,19 @@ export function fmtInt(n: number | null | undefined): string {
   return intFmt.format(Math.round(n));
 }
 
-/** `1,240,500 ج.م` — use where the number sits in a table or beside others. */
+/** `1,240,500 ج.م` / `$1,240,500` — where the number sits beside others. */
 export function fmtMoney(n: number | null | undefined): string {
   if (n == null || Number.isNaN(n)) return '—';
-  return `${intFmt.format(Math.round(n))} ${EGP}`;
+  return withCurrency(intFmt.format(Math.round(n)));
 }
 
-/** `1.2 مليون ج.م` — use for hero figures and stat tiles. */
+/** `1.2 مليون ج.م` / `$1.2 مليون` — for hero figures and stat tiles. */
 export function fmtMoneyCompact(n: number | null | undefined): string {
   if (n == null || Number.isNaN(n)) return '—';
   const abs = Math.abs(n);
-  if (abs >= 1_000_000) return `${oneDp.format(n / 1_000_000)} مليون ${EGP}`;
-  if (abs >= 10_000) return `${oneDp.format(n / 1_000)} ألف ${EGP}`;
-  return `${intFmt.format(Math.round(n))} ${EGP}`;
+  if (abs >= 1_000_000) return withCurrency(`${oneDp.format(n / 1_000_000)} مليون`);
+  if (abs >= 10_000) return withCurrency(`${oneDp.format(n / 1_000)} ألف`);
+  return withCurrency(intFmt.format(Math.round(n)));
 }
 
 /** `92.4%` */

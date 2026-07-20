@@ -8,6 +8,7 @@ import { IconAlert } from './components/Icons';
 import Overview from './pages/Overview';
 import Departments from './pages/Departments';
 import DeptDetail from './pages/DeptDetail';
+import Tickets from './pages/Tickets';
 import Sales from './pages/Sales';
 
 /** Shown when the build has no Supabase credentials — otherwise every card
@@ -46,6 +47,7 @@ export default function App() {
               <Route path="/" element={<Overview />} />
               <Route path="/depts" element={<Departments />} />
               <Route path="/dept/:team" element={<DeptDetail />} />
+              <Route path="/tickets" element={<Tickets />} />
               <Route path="/sales" element={<Sales />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>

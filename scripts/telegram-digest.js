@@ -87,6 +87,13 @@ const nf = new Intl.NumberFormat('ar-EG-u-nu-latn', { maximumFractionDigits: 0 }
 const n = (v) => nf.format(Math.round(Number(v) || 0));
 const pct = (v) => (v == null ? '—' : `${Math.round(Number(v))}%`);
 
+/** Keep in step with the dashboard's VITE_CURRENCY. */
+const MARKS = { EGP: 'ج.م', USD: '$', EUR: '€', GBP: '£', SAR: 'ر.س', AED: 'د.إ', KWD: 'د.ك' };
+const CURRENCY_CODE = (process.env.CURRENCY ?? 'EGP').toUpperCase();
+const MARK = MARKS[CURRENCY_CODE] ?? CURRENCY_CODE;
+const money = (v) =>
+  ['USD', 'EUR', 'GBP'].includes(CURRENCY_CODE) ? `${MARK}${n(v)}` : `${n(v)} ${MARK}`;
+
 /** Telegram HTML parse_mode only needs these three escaped. */
 const esc = (s) =>
   String(s ?? '')
@@ -175,11 +182,11 @@ async function build() {
   } else {
     top.forEach((p, i) => {
       lines.push(
-        `${i + 1}. ${esc(p.user_name ?? '—')} — ${n(p.achieved_total)} ج (${n(p.deals_count)} صفقة)`,
+        `${i + 1}. ${esc(p.user_name ?? '—')} — ${money(p.achieved_total)} (${n(p.deals_count)} صفقة)`,
       );
     });
     const total = sales.reduce((s, p) => s + (Number(p.achieved_total) || 0), 0);
-    lines.push(`<i>الإجمالي: ${n(total)} ج من ${n(sales.length)} فرد</i>`);
+    lines.push(`<i>الإجمالي: ${money(total)} من ${n(sales.length)} فرد</i>`);
   }
 
   // Best / worst

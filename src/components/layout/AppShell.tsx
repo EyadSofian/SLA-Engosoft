@@ -1,6 +1,6 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import type { ReactNode } from 'react';
-import { IconDepartments, IconHome, IconRefresh, IconSales } from '../Icons';
+import { IconDepartments, IconHome, IconInbox, IconRefresh, IconSales } from '../Icons';
 import { cx } from '../ui/primitives';
 import { useRefresh } from '../../hooks/useRefresh';
 import { todayLabel } from '../../lib/format';
@@ -8,6 +8,7 @@ import { todayLabel } from '../../lib/format';
 const NAV = [
   { to: '/', label: 'الرئيسية', Icon: IconHome, end: true },
   { to: '/depts', label: 'الأقسام', Icon: IconDepartments, end: false },
+  { to: '/tickets', label: 'التذاكر', Icon: IconInbox, end: false },
   { to: '/sales', label: 'المبيعات', Icon: IconSales, end: false },
 ] as const;
 
@@ -129,6 +130,7 @@ function Header({ title }: { title: string }) {
 const TITLES: Record<string, string> = {
   '/': 'نظرة عامة',
   '/depts': 'الأقسام',
+  '/tickets': 'التذاكر',
   '/sales': 'المبيعات',
 };
 
