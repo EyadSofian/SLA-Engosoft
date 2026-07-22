@@ -133,9 +133,9 @@ export function ChatFab() {
           type="button"
           onClick={() => setOpen(true)}
           aria-label="افتح المساعد الذكي"
-          className="tap fixed bottom-24 end-4 z-50 flex h-14 w-14 items-center justify-center rounded-2xl bg-navy text-white shadow-panel transition hover:bg-brand-700 lg:bottom-6 lg:end-6"
+          className="tap fixed bottom-[calc(4.5rem+env(safe-area-inset-bottom))] end-0 z-50 flex h-11 w-10 items-center justify-center rounded-e-none rounded-s-2xl bg-navy/95 text-white shadow-panel transition hover:bg-brand-700 lg:bottom-6 lg:end-6 lg:h-14 lg:w-14 lg:rounded-2xl"
         >
-          <IconChat className="h-6 w-6" />
+          <IconChat className="h-5 w-5 lg:h-6 lg:w-6" />
         </button>
       )}
 

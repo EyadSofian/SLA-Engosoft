@@ -54,8 +54,8 @@ export default function Overview() {
         <SectionTitle title="مؤشرات النهاردة" subtitle="مجمّعة على مستوى الشركة" />
 
         {depts.loading ? (
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
-            {Array.from({ length: 6 }).map((_, i) => (
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            {Array.from({ length: 4 }).map((_, i) => (
               <SkeletonCard key={i} lines={0} />
             ))}
           </div>
@@ -64,53 +64,63 @@ export default function Overview() {
             <ErrorState error={depts.error} onRetry={depts.reload} />
           </Card>
         ) : (
-          <div className={cx('grid grid-cols-2 gap-3 lg:grid-cols-6', depts.refreshing && 'is-refetching')}>
-            <StatTile
-              label="تذاكر مفتوحة"
-              value={fmtInt(totals?.open)}
-              icon={<IconInbox className="h-4 w-4" />}
-              tone="brand"
-            />
-            <StatTile
-              label="اتقفل النهاردة"
-              value={today.loading ? <Skeleton className="h-7 w-14" /> : fmtInt(today.data?.closed)}
-              hint={today.data ? `اتفتح ${fmtInt(today.data.opened)} النهاردة` : undefined}
-              icon={<IconCheck className="h-4 w-4" />}
-              tone="ok"
-            />
-            <StatTile
-              label="غير مُسندة"
-              value={fmtInt(totals?.unassigned)}
-              icon={<IconUserOff className="h-4 w-4" />}
-              tone={totals && totals.unassigned > 0 ? 'warn' : 'neutral'}
-            />
-            <StatTile
-              label="عاجلة"
-              value={fmtInt(totals?.urgent)}
-              icon={<IconUrgent className="h-4 w-4" />}
-              tone={totals && totals.urgent > 0 ? 'warn' : 'neutral'}
-            />
-            <StatTile
-              label="SLA متأخر"
-              value={fmtInt(totals?.failed)}
-              icon={<IconClock className="h-4 w-4" />}
-              tone={totals && totals.failed > 0 ? 'bad' : 'neutral'}
-            />
-            <StatTile
-              label="التزام SLA"
-              value={fmtPct(totals?.slaMetPct)}
-              hint="مرجّح بعدد التذاكر"
-              icon={<IconTarget className="h-4 w-4" />}
-              tone={
-                totals?.slaMetPct == null
-                  ? 'neutral'
-                  : totals.slaMetPct < 80
-                    ? 'bad'
-                    : totals.slaMetPct < 95
-                      ? 'warn'
-                      : 'ok'
-              }
-            />
+          <div className={cx('space-y-3', depts.refreshing && 'is-refetching')}>
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+              <StatTile
+                label="تذاكر مفتوحة"
+                value={fmtInt(totals?.open)}
+                icon={<IconInbox className="h-4 w-4" />}
+                tone="brand"
+              />
+              <StatTile
+                label="غير مُسندة"
+                value={fmtInt(totals?.unassigned)}
+                icon={<IconUserOff className="h-4 w-4" />}
+                tone={totals && totals.unassigned > 0 ? 'warn' : 'neutral'}
+              />
+              <StatTile
+                label="SLA متأخر"
+                value={fmtInt(totals?.failed)}
+                icon={<IconClock className="h-4 w-4" />}
+                tone={totals && totals.failed > 0 ? 'bad' : 'neutral'}
+              />
+              <StatTile
+                label="التزام SLA"
+                value={fmtPct(totals?.slaMetPct)}
+                icon={<IconTarget className="h-4 w-4" />}
+                tone={
+                  totals?.slaMetPct == null
+                    ? 'neutral'
+                    : totals.slaMetPct < 80
+                      ? 'bad'
+                      : totals.slaMetPct < 95
+                        ? 'warn'
+                        : 'ok'
+                }
+              />
+            </div>
+
+            <div className="card grid grid-cols-3 divide-x-reverse divide-x divide-surface-line overflow-hidden">
+              <div className="p-3 text-center">
+                <IconCheck className="mx-auto h-4 w-4 text-status-ok" />
+                <p className="mt-1 text-lg font-bold text-navy">
+                  {today.loading ? <Skeleton className="mx-auto h-6 w-10" /> : fmtInt(today.data?.closed)}
+                </p>
+                <p className="text-[10px] text-ink-muted">اتقفل النهاردة</p>
+              </div>
+              <div className="p-3 text-center">
+                <IconInbox className="mx-auto h-4 w-4 text-brand-600" />
+                <p className="mt-1 text-lg font-bold text-navy">
+                  {today.loading ? <Skeleton className="mx-auto h-6 w-10" /> : fmtInt(today.data?.opened)}
+                </p>
+                <p className="text-[10px] text-ink-muted">اتفتح النهاردة</p>
+              </div>
+              <div className="p-3 text-center">
+                <IconUrgent className="mx-auto h-4 w-4 text-[#B45309]" />
+                <p className="mt-1 text-lg font-bold text-navy">{fmtInt(totals?.urgent)}</p>
+                <p className="text-[10px] text-ink-muted">عاجلة</p>
+              </div>
+            </div>
           </div>
         )}
       </section>

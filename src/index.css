@@ -78,6 +78,13 @@
   .tap {
     @apply transition active:scale-[0.985];
   }
+
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

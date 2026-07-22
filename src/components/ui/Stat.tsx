@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { motion } from 'framer-motion';
 import { STATUS } from '../../lib/theme';
 import { HEALTH_LABEL, type Health } from '../../lib/metrics';
 import { fmtPct } from '../../lib/format';
@@ -41,7 +42,12 @@ export function StatTile({
   } as const;
 
   return (
-    <div className={cx('card p-4', className)}>
+    <motion.div
+      className={cx('card p-4', className)}
+      whileHover={{ y: -2 }}
+      whileTap={{ scale: 0.985 }}
+      transition={{ type: 'spring', stiffness: 320, damping: 24 }}
+    >
       <div className="flex items-start justify-between gap-2">
         <p className="text-xs font-medium text-ink-muted">{label}</p>
         {icon && (
@@ -54,7 +60,7 @@ export function StatTile({
         {value}
       </p>
       {hint && <p className="mt-1 text-[11px] leading-relaxed text-ink-muted">{hint}</p>}
-    </div>
+    </motion.div>
   );
 }
 

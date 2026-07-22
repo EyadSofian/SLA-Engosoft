@@ -144,6 +144,13 @@ export const IconPhone = (p: IconProps) => (
   </Svg>
 );
 
+export const IconLost = (p: IconProps) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="8.5" />
+    <path d="m9 9 6 6M15 9l-6 6" />
+  </Svg>
+);
+
 export const IconBack = (p: IconProps) => (
   <Svg {...p}>
     <path d="M9.5 5.5 16 12l-6.5 6.5" />

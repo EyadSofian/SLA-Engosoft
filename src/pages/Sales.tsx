@@ -29,7 +29,7 @@ import {
 } from '../components/ui/primitives';
 import { PersonCard } from '../components/PersonCard';
 import { SalesTrend } from '../components/charts/SalesTrend';
-import { IconPhone } from '../components/Icons';
+import { IconLost, IconPhone } from '../components/Icons';
 
 type Tab = 'month' | 'all';
 
@@ -38,6 +38,7 @@ export default function Sales() {
   const [tab, setTab] = useState<Tab>('month');
   const [untaxed, setUntaxed] = useState(false);
   const [month, setMonth] = useState<string | null>(null);
+  const [showAllCrm, setShowAllCrm] = useState(false);
 
   const sales = useAsync(
     () => select<SalesSummary>('sales_summary', { order: 'month.desc', limit: 5000 }),
@@ -114,6 +115,12 @@ export default function Sales() {
     };
   }, [crmRows]);
 
+  const lostRows = useMemo(
+    () => crmRows.filter((row) => row.lost_leads > 0).sort((a, b) => b.lost_leads - a.lost_leads),
+    [crmRows],
+  );
+  const maxLost = lostRows[0]?.lost_leads ?? 1;
+
   // One target per team — the view repeats it on every person's row.
   const teams = useMemo(() => {
     const map = new Map<string, { team: string; achieved: number; target: number | null; people: number }>();
@@ -184,7 +191,10 @@ export default function Sales() {
                 <span className="sr-only">اختار الشهر</span>
                 <select
                   value={selected ?? ''}
-                  onChange={(e) => setMonth(e.target.value)}
+                  onChange={(e) => {
+                    setMonth(e.target.value);
+                    setShowAllCrm(false);
+                  }}
                   className="min-h-[44px] rounded-xl border border-surface-line bg-white px-3 text-sm font-semibold text-navy focus:border-brand-300"
                 >
                   {months.map((m) => (
@@ -199,6 +209,35 @@ export default function Sales() {
         </div>
       </div>
 
+      {tab === 'month' && (
+        <nav
+          className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:px-0"
+          aria-label="اختصارات المبيعات"
+        >
+          <a
+            href="#closed-lost"
+            className="tap inline-flex min-h-[44px] shrink-0 items-center gap-2 rounded-xl border border-status-warn/30 bg-status-warnBg px-3 text-xs font-bold text-[#92400E]"
+          >
+            <IconLost className="h-4 w-4" />
+            Closed Lost
+            <span className="rounded-full bg-white/80 px-2 py-0.5 text-[11px]">{crm.loading ? '—' : fmtInt(crmTotals.lost)}</span>
+          </a>
+          <a
+            href="#sales-team"
+            className="tap inline-flex min-h-[44px] shrink-0 items-center rounded-xl border border-surface-line bg-white px-3 text-xs font-semibold text-navy"
+          >
+            أداء الموظفين
+          </a>
+          <a
+            href="#sales-operations"
+            className="tap inline-flex min-h-[44px] shrink-0 items-center gap-2 rounded-xl border border-surface-line bg-white px-3 text-xs font-semibold text-navy"
+          >
+            <IconPhone className="h-4 w-4" />
+            المكالمات
+          </a>
+        </nav>
+      )}
+
       {sales.error ? (
         <Card>
           <ErrorState error={sales.error} onRetry={sales.reload} />
@@ -208,66 +247,219 @@ export default function Sales() {
           {/* ── CRM ownership + conversion ───────────────────────── */}
           {crm.loading ? (
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-              {Array.from({ length: 8 }).map((_, i) => <SkeletonCard key={i} lines={0} />)}
+              {Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} lines={0} />)}
             </div>
           ) : crm.error ? (
             <Card><ErrorState error={crm.error} onRetry={crm.reload} /></Card>
           ) : (
-            <div className={cx('grid grid-cols-2 gap-3 lg:grid-cols-4', crm.refreshing && 'is-refetching')}>
-              <StatTile label="ليدز مفتوحة حاليًا" value={fmtInt(crmTotals.open)} tone="brand" />
-              <StatTile label="ليدز جديدة" value={fmtInt(crmTotals.newLeads)} />
-              <StatTile label="لم يتم الاتصال" value={fmtInt(crmTotals.uncontacted)} tone={crmTotals.uncontacted ? 'bad' : 'ok'} />
-              <StatTile label="متوسط أول مكالمة" value={crmTotals.firstCallMinutes == null ? '—' : fmtHours(crmTotals.firstCallMinutes / 60)} />
-              <StatTile label="Closed Won" value={fmtInt(crmTotals.won)} tone="ok" />
-              <StatTile label="Closed Lost" value={fmtInt(crmTotals.lost)} tone={crmTotals.lost ? 'warn' : 'neutral'} />
-              <StatTile label="نسبة التحويل" value={fmtPct(crmTotals.conversion)} tone={crmTotals.conversion == null ? 'neutral' : crmTotals.conversion >= 30 ? 'ok' : 'warn'} />
-              <StatTile label="مكالمات صادرة" value={fmtInt(crmTotals.calls)} icon={<IconPhone className="h-4 w-4" />} />
-            </div>
+            <>
+              <div className={cx('grid grid-cols-2 gap-3 lg:grid-cols-4', crm.refreshing && 'is-refetching')}>
+                <StatTile label="ليدز مفتوحة" value={fmtInt(crmTotals.open)} tone="brand" />
+                <StatTile label="Closed Won" value={fmtInt(crmTotals.won)} tone="ok" />
+                <StatTile
+                  label="Closed Lost"
+                  value={fmtInt(crmTotals.lost)}
+                  icon={<IconLost className="h-4 w-4" />}
+                  tone={crmTotals.lost ? 'warn' : 'neutral'}
+                />
+                <StatTile
+                  label="نسبة التحويل"
+                  value={fmtPct(crmTotals.conversion)}
+                  tone={crmTotals.conversion == null ? 'neutral' : crmTotals.conversion >= 30 ? 'ok' : 'warn'}
+                />
+              </div>
+
+              <details id="sales-operations" className="card group scroll-mt-28 overflow-hidden">
+                <summary className="tap flex min-h-[52px] cursor-pointer list-none items-center justify-between gap-3 px-4 text-sm font-bold text-navy [&::-webkit-details-marker]:hidden">
+                  <span className="inline-flex items-center gap-2">
+                    <IconPhone className="h-4 w-4 text-brand-600" />
+                    التشغيل والمكالمات
+                  </span>
+                  <span className="text-xs font-semibold text-brand-600 group-open:hidden">عرض التفاصيل</span>
+                  <span className="hidden text-xs font-semibold text-brand-600 group-open:inline">إخفاء</span>
+                </summary>
+                <div className="grid grid-cols-2 border-t border-surface-line sm:grid-cols-3 lg:grid-cols-5">
+                  <div className="border-b border-surface-line p-3 sm:border-e lg:border-b-0">
+                    <p className="text-[11px] text-ink-muted">ليدز جديدة</p>
+                    <p className="mt-1 text-lg font-bold text-navy">{fmtInt(crmTotals.newLeads)}</p>
+                  </div>
+                  <div className="border-b border-surface-line p-3 sm:border-e lg:border-b-0">
+                    <p className="text-[11px] text-ink-muted">لم يتم الاتصال</p>
+                    <p className={cx('mt-1 text-lg font-bold', crmTotals.uncontacted ? 'text-status-bad' : 'text-status-ok')}>
+                      {fmtInt(crmTotals.uncontacted)}
+                    </p>
+                  </div>
+                  <div className="border-b border-surface-line p-3 lg:border-b-0 lg:border-e">
+                    <p className="text-[11px] text-ink-muted">متوسط أول مكالمة</p>
+                    <p className="mt-1 text-lg font-bold text-navy">
+                      {crmTotals.firstCallMinutes == null ? '—' : fmtHours(crmTotals.firstCallMinutes / 60)}
+                    </p>
+                  </div>
+                  <div className="p-3 sm:border-e">
+                    <p className="text-[11px] text-ink-muted">المكالمات الصادرة</p>
+                    <p className="mt-1 text-lg font-bold text-navy">{fmtInt(crmTotals.calls)}</p>
+                  </div>
+                  <div className="p-3">
+                    <p className="text-[11px] text-ink-muted">الرد / وقت الكلام</p>
+                    <p className="mt-1 text-sm font-bold text-navy">
+                      {fmtPct(crmTotals.answer, 0)} · {fmtDuration(crmTotals.talk)}
+                    </p>
+                  </div>
+                </div>
+              </details>
+
+              <section
+                id="closed-lost"
+                className="card scroll-mt-28 overflow-hidden border-status-warn/30 p-4 sm:p-5"
+                aria-labelledby="closed-lost-title"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex min-w-0 items-start gap-3">
+                    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-status-warnBg text-[#B45309]">
+                      <IconLost className="h-5 w-5" />
+                    </span>
+                    <div className="min-w-0">
+                      <h2 id="closed-lost-title" className="text-base font-extrabold text-navy">Closed Lost</h2>
+                      <p className="mt-0.5 text-xs text-ink-muted">مين محتاج مراجعة أسباب الخسارة هذا الشهر</p>
+                    </div>
+                  </div>
+                  <div className="shrink-0 text-end">
+                    <p className="text-3xl font-extrabold text-[#B45309]">{fmtInt(crmTotals.lost)}</p>
+                    <p className="text-[11px] text-ink-muted">ليد مغلق</p>
+                  </div>
+                </div>
+
+                {lostRows.length === 0 ? (
+                  <p className="mt-4 rounded-xl bg-surface-bg p-3 text-sm text-ink-muted">لا توجد Closed Lost في الشهر المختار.</p>
+                ) : (
+                  <div className="mt-4 space-y-3">
+                    {lostRows.slice(0, 6).map((row) => (
+                      <div key={`lost-${row.user_id}`}>
+                        <div className="flex items-center justify-between gap-3 text-xs">
+                          <p className="min-w-0 truncate font-semibold text-navy">{row.user_name}</p>
+                          <span className="shrink-0 font-bold text-[#B45309]">{fmtInt(row.lost_leads)}</span>
+                        </div>
+                        <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-status-warnBg">
+                          <div
+                            className="h-full rounded-full bg-status-warn transition-[width] duration-500"
+                            style={{ width: `${Math.max(6, (row.lost_leads / maxLost) * 100)}%` }}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                    {lostRows.length > 6 && (
+                      <p className="text-[11px] text-ink-muted">باقي الموظفين ظاهرين في أداء الموظفين بالأسفل.</p>
+                    )}
+                  </div>
+                )}
+              </section>
+            </>
           )}
 
-          <Card as="section">
-            <SectionTitle title="أداء موظفي السيلز" subtitle={selected ? `${fmtMonth(selected)} · CRM + Yeastar` : undefined} />
-            {crm.loading ? (
-              <div className="space-y-2">{Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}</div>
-            ) : crmRows.length === 0 ? (
-              <EmptyState title="لسه مفيش CRM metrics للشهر ده" hint="شغّل Workflow مزامنة CRM بعد تطبيق operational-schema-v2.sql." />
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[980px] text-sm">
-                  <thead>
-                    <tr className="border-b border-surface-line text-xs text-ink-muted">
-                      <th className="px-2 py-2 text-start font-medium">الموظف</th>
-                      <th className="px-2 py-2 text-start font-medium">معاه الآن</th>
-                      <th className="px-2 py-2 text-start font-medium">جديدة</th>
-                      <th className="px-2 py-2 text-start font-medium">بدون اتصال</th>
-                      <th className="px-2 py-2 text-start font-medium">أول مكالمة</th>
-                      <th className="px-2 py-2 text-start font-medium">المكالمات</th>
-                      <th className="px-2 py-2 text-start font-medium">رد</th>
-                      <th className="px-2 py-2 text-start font-medium">Won</th>
-                      <th className="px-2 py-2 text-start font-medium">Lost</th>
-                      <th className="px-2 py-2 text-start font-medium">التحويل</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {crmRows.map((row) => (
-                      <tr key={row.user_id} className={cx('border-b border-surface-line/70 last:border-0', row.uncontacted_leads > 0 && 'bg-status-warnBg/35')}>
-                        <td className="px-2 py-2"><p className="font-semibold text-navy">{row.user_name}</p><p className="text-[11px] text-ink-faint">{row.team_name ?? 'بدون فريق'}</p></td>
-                        <td className="px-2 py-2 font-semibold text-navy">{fmtInt(row.open_leads)}</td>
-                        <td className="px-2 py-2 text-ink-muted">{fmtInt(row.new_leads)}</td>
-                        <td className={cx('px-2 py-2 font-semibold', row.uncontacted_leads ? 'text-status-bad' : 'text-status-ok')}>{fmtInt(row.uncontacted_leads)}</td>
-                        <td className="px-2 py-2 text-ink-muted">{row.avg_first_call_minutes == null ? '—' : fmtHours(row.avg_first_call_minutes / 60)}</td>
-                        <td className="px-2 py-2 text-ink-muted">{fmtInt(row.outbound_calls)}</td>
-                        <td className="px-2 py-2 text-ink-muted">{fmtPct(row.answer_pct, 0)}</td>
-                        <td className="px-2 py-2 font-semibold text-status-ok">{fmtInt(row.won_leads)}</td>
-                        <td className="px-2 py-2 font-semibold text-[#B45309]">{fmtInt(row.lost_leads)}</td>
-                        <td className="px-2 py-2 font-semibold text-navy">{fmtPct(row.conversion_pct)}</td>
-                      </tr>
+          <section id="sales-team" className="scroll-mt-28">
+            <Card>
+              <SectionTitle title="أداء موظفي السيلز" subtitle={selected ? `${fmtMonth(selected)} · CRM + Yeastar` : undefined} />
+              {crm.loading ? (
+                <div className="space-y-2">{Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}</div>
+              ) : crmRows.length === 0 ? (
+                <EmptyState title="لسه مفيش CRM metrics للشهر ده" hint="شغّل Workflow مزامنة CRM بعد تطبيق operational-schema-v2.sql." />
+              ) : (
+                <>
+                  <div className="space-y-2 lg:hidden">
+                    {crmRows.slice(0, showAllCrm ? crmRows.length : 12).map((row) => (
+                      <article
+                        key={`mobile-${row.user_id}`}
+                        className={cx(
+                          'rounded-2xl border border-surface-line bg-surface-bg/65 p-3.5',
+                          row.uncontacted_leads > 0 && 'border-status-warn/30 bg-status-warnBg/35',
+                        )}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-bold text-navy">{row.user_name}</p>
+                            <p className="mt-0.5 truncate text-[11px] text-ink-faint">{row.team_name ?? 'بدون فريق'}</p>
+                          </div>
+                          <span className="shrink-0 rounded-full bg-brand-50 px-2.5 py-1 text-[11px] font-bold text-brand-700">
+                            معاه {fmtInt(row.open_leads)}
+                          </span>
+                        </div>
+
+                        <dl className="mt-3 grid grid-cols-4 gap-2 border-y border-surface-line/80 py-2.5 text-center">
+                          <div>
+                            <dt className="text-[10px] text-ink-faint">جديدة</dt>
+                            <dd className="mt-0.5 text-sm font-bold text-navy">{fmtInt(row.new_leads)}</dd>
+                          </div>
+                          <div>
+                            <dt className="text-[10px] text-ink-faint">بدون اتصال</dt>
+                            <dd className={cx('mt-0.5 text-sm font-bold', row.uncontacted_leads ? 'text-status-bad' : 'text-status-ok')}>
+                              {fmtInt(row.uncontacted_leads)}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt className="text-[10px] text-ink-faint">Won</dt>
+                            <dd className="mt-0.5 text-sm font-bold text-status-ok">{fmtInt(row.won_leads)}</dd>
+                          </div>
+                          <div>
+                            <dt className="text-[10px] text-ink-faint">Lost</dt>
+                            <dd className="mt-0.5 text-sm font-bold text-[#B45309]">{fmtInt(row.lost_leads)}</dd>
+                          </div>
+                        </dl>
+
+                        <div className="mt-2.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[11px] text-ink-muted">
+                          <span>مكالمات {fmtInt(row.outbound_calls)} · رد {fmtPct(row.answer_pct, 0)}</span>
+                          <span className="font-bold text-navy">تحويل {fmtPct(row.conversion_pct)}</span>
+                        </div>
+                      </article>
                     ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </Card>
+                    {crmRows.length > 12 && (
+                      <button
+                        type="button"
+                        onClick={() => setShowAllCrm((value) => !value)}
+                        className="tap min-h-[48px] w-full rounded-xl border border-brand-200 bg-brand-50 px-4 text-sm font-bold text-brand-700"
+                      >
+                        {showAllCrm ? 'عرض أهم 12 موظف فقط' : `عرض كل الموظفين (${fmtInt(crmRows.length)})`}
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="hidden overflow-x-auto lg:block">
+                    <table className="w-full min-w-[980px] text-sm">
+                      <thead>
+                        <tr className="border-b border-surface-line text-xs text-ink-muted">
+                          <th className="px-2 py-2 text-start font-medium">الموظف</th>
+                          <th className="px-2 py-2 text-start font-medium">معاه الآن</th>
+                          <th className="px-2 py-2 text-start font-medium">جديدة</th>
+                          <th className="px-2 py-2 text-start font-medium">بدون اتصال</th>
+                          <th className="px-2 py-2 text-start font-medium">أول مكالمة</th>
+                          <th className="px-2 py-2 text-start font-medium">المكالمات</th>
+                          <th className="px-2 py-2 text-start font-medium">رد</th>
+                          <th className="px-2 py-2 text-start font-medium">Won</th>
+                          <th className="px-2 py-2 text-start font-medium">Lost</th>
+                          <th className="px-2 py-2 text-start font-medium">التحويل</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {crmRows.map((row) => (
+                          <tr key={row.user_id} className={cx('border-b border-surface-line/70 last:border-0', row.uncontacted_leads > 0 && 'bg-status-warnBg/35')}>
+                            <td className="px-2 py-2"><p className="font-semibold text-navy">{row.user_name}</p><p className="text-[11px] text-ink-faint">{row.team_name ?? 'بدون فريق'}</p></td>
+                            <td className="px-2 py-2 font-semibold text-navy">{fmtInt(row.open_leads)}</td>
+                            <td className="px-2 py-2 text-ink-muted">{fmtInt(row.new_leads)}</td>
+                            <td className={cx('px-2 py-2 font-semibold', row.uncontacted_leads ? 'text-status-bad' : 'text-status-ok')}>{fmtInt(row.uncontacted_leads)}</td>
+                            <td className="px-2 py-2 text-ink-muted">{row.avg_first_call_minutes == null ? '—' : fmtHours(row.avg_first_call_minutes / 60)}</td>
+                            <td className="px-2 py-2 text-ink-muted">{fmtInt(row.outbound_calls)}</td>
+                            <td className="px-2 py-2 text-ink-muted">{fmtPct(row.answer_pct, 0)}</td>
+                            <td className="px-2 py-2 font-semibold text-status-ok">{fmtInt(row.won_leads)}</td>
+                            <td className="px-2 py-2 font-semibold text-[#B45309]">{fmtInt(row.lost_leads)}</td>
+                            <td className="px-2 py-2 font-semibold text-navy">{fmtPct(row.conversion_pct)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+            </Card>
+          </section>
 
           {/* ── Month KPIs ─────────────────────────────────────────── */}
           {sales.loading ? (
@@ -362,33 +554,6 @@ export default function Sales() {
             )}
           </section>
 
-
-          {/* ── Calls ──────────────────────────────────────────────── */}
-          <Card as="section">
-            <SectionTitle
-              title="المكالمات"
-              subtitle={selected ? `${fmtMonth(selected)} · من Yeastar` : undefined}
-            />
-            {crm.loading ? (
-              <div className="grid grid-cols-3 gap-3">
-                {Array.from({ length: 3 }).map((_, i) => (
-                  <Skeleton key={i} className="h-16 w-full" />
-                ))}
-              </div>
-            ) : crmRows.length === 0 ? (
-              <EmptyState
-                title="لسه مفيش بيانات مكالمات"
-                hint="المكالمة لا تظهر هنا إلا بعد ربط Extension بموظف Odoo في map_extension."
-              />
-            ) : (
-              <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-                <StatTile label="عدد المكالمات" value={fmtInt(crmTotals.calls)} icon={<IconPhone className="h-4 w-4" />} />
-                <StatTile label="اتردّ عليها" value={fmtInt(crmTotals.answered)} tone="ok" />
-                <StatTile label="نسبة الرد" value={fmtPct(crmTotals.answer, 0)} tone={crmTotals.answer != null && crmTotals.answer >= 80 ? 'ok' : 'warn'} />
-                <StatTile label="إجمالي وقت الكلام" value={fmtDuration(crmTotals.talk)} />
-              </div>
-            )}
-          </Card>
         </>
       ) : (
         /* ── All-time leaderboard ─────────────────────────────────── */

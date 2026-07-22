@@ -1,4 +1,5 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { MotionConfig } from 'framer-motion';
 import { AppShell } from './components/layout/AppShell';
 import { ChatFab } from './components/chat/ChatFab';
 import { ToastProvider } from './components/ui/Toast';
@@ -42,20 +43,22 @@ export default function App() {
   return (
     <RefreshProvider>
       <ToastProvider>
-        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-          <AppShell>
-            <Routes>
-              <Route path="/" element={<Overview />} />
-              <Route path="/depts" element={<Departments />} />
-              <Route path="/dept/:team" element={<DeptDetail />} />
-              <Route path="/tickets" element={<Tickets />} />
-              <Route path="/sales" element={<Sales />} />
-              <Route path="/recruitment" element={<Recruitment />} />
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
-          </AppShell>
-          <ChatFab />
-        </BrowserRouter>
+        <MotionConfig reducedMotion="user">
+          <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+            <AppShell>
+              <Routes>
+                <Route path="/" element={<Overview />} />
+                <Route path="/depts" element={<Departments />} />
+                <Route path="/dept/:team" element={<DeptDetail />} />
+                <Route path="/tickets" element={<Tickets />} />
+                <Route path="/sales" element={<Sales />} />
+                <Route path="/recruitment" element={<Recruitment />} />
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Routes>
+            </AppShell>
+            <ChatFab />
+          </BrowserRouter>
+        </MotionConfig>
       </ToastProvider>
     </RefreshProvider>
   );
