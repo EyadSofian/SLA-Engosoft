@@ -1,12 +1,13 @@
 # Botpress Cloud bot — «دفتر الإدارة»
 
-The Telegram front-end for the management tab. Botpress Cloud owns the
-conversation (its own Telegram integration, its own reply); this project's
-`/api/management/ingest` owns the extraction and the writing.
+The Telegram front-end for the management tab. **The Autonomous Node does the
+extraction** — you're already paying for that turn, so there is no second model
+call anywhere in this path. `/api/management/ingest` validates what arrives and
+writes it.
 
 ```
 Telegram ──► Botpress Cloud ──► Autonomous Node «Management Desk»
-                                   │  copies the message into {{workflow.pendingText}}
+                                   │  builds a JSON array → {{workflow.itemsJson}}
                                    ├─ transition ─► «sendToDashboard» ─► POST /ingest ─┐
                                    └─ transition ─► «getAgenda» ───────► GET /agenda ──┤
                                                                                        │
@@ -20,6 +21,15 @@ language.
 **Nobody types a chat id anywhere.** The Execute Code card reads it off the
 event, and access is granted by the join code (§6).
 
+### The one thing the node does *not* do: timezones
+
+The node writes `due_date` and `due_time` as two plain fields — `"2026-07-23"`
+and `"17:00"`. It never writes an offset. The server composes the real
+timestamp using the offset that applies **on that date**, which flips twice a
+year; an LLM asked for a full ISO string will confidently write `+02:00` in
+July. Splitting it this way plays to what each side is good at: the model reads
+«بكره الساعة ٥», the code does the calendar arithmetic.
+
 > **Free plan:** `axios` from an Execute Code card is blocked on Botpress's
 > free tier — the card fails with `axios is not defined`. Filing needs a paid
 > plan, or n8n as the relay (same endpoint, same body).
@@ -28,17 +38,24 @@ event, and access is granted by the join code (§6).
 
 ## 1. Workflow variables
 
-Create both on the workflow (**type `String`**, Allow Write Access **ON**):
+Create all three on the workflow (**type `String`**, Allow Write Access **ON**):
 
 | Variable | Written by | Holds |
 | --- | --- | --- |
-| `pendingText` | the LLM | the message to file, in the user's own words |
+| `itemsJson` | the LLM | a JSON **array** of items, as a string |
+| `pendingText` | the LLM | the user's message verbatim — stored as the audit trail, and used for the join code |
 | `dashboardReply` | Execute Code | what the API replied — printed verbatim |
 
-Only `pendingText` is LLM-written, and it's plain text, not JSON. That's
-deliberate: the Autonomous Node is unreliable at filling structured variables,
-and the extraction already happens server-side where the output is
-schema-validated before anything is written.
+`itemsJson` is a `String`, not an `Object`, on purpose: a Botpress `Object`
+variable gets auto-stringified in ways that surprise you, and the server parses
+the string tolerantly anyway — a fenced ```` ```json ```` block, a bare array,
+or a `{"items":[…]}` wrapper all work.
+
+Nothing is trusted on arrival. Every field is re-checked server-side before it
+is written: unknown `kind`/`priority` values fall back to defaults, strings are
+length-capped, arrays are capped, an item with no title is dropped, and a date
+more than five years out is discarded. A malformed payload costs you that item,
+never the database.
 
 ---
 
@@ -48,7 +65,7 @@ schema-validated before anything is written.
 
 ```
 <role>
-You are "دفتر الإدارة" (the Management Desk), a Telegram assistant for the management team at Engosoft. You collect what needs to happen today from managers, hand it to the management dashboard, and answer questions about the agenda. You never do the work yourself and you never give advice.
+You are "دفتر الإدارة" (the Management Desk), a Telegram assistant for the management team at Engosoft. You turn what a manager types into structured items for the management dashboard, and you answer questions about the agenda. You never do the work yourself and you never give advice.
 </role>
 
 <language>
@@ -57,29 +74,47 @@ Always reply in simple Egyptian Arabic. One or two sentences. No preamble, no pl
 
 <critical_rules>
 - NEVER use clock.setReminder or any built-in reminder tool. The only thing that stores anything is the sendToDashboard transition.
-- NEVER invent a date, a name, or a detail. Only what the user actually wrote gets sent.
-- NEVER summarise, translate, or rewrite the user's message before sending it. Copy their exact wording into {{workflow.pendingText}}.
+- NEVER invent an owner, a time, or a detail. If the user did not say it, leave the field out entirely.
+- NEVER write a timezone, a UTC offset, or a full ISO timestamp. Write the day and the clock time as two separate plain fields — the dashboard adds the offset.
 - Every message that carries buttons must also carry non-empty text.
-- After the dashboard reply has been shown to the user, stop and wait for a new message. Do not repeat it, expand on it, or add a follow-up question.
+- After the dashboard reply has been shown to the user, stop and wait for a new message. Do not repeat it or add a follow-up question.
 </critical_rules>
 
-<tasks>
-FILING
-When the message contains a task, a meeting, an appointment, a reminder, or a decision:
-1. Store the user's full message text in {{workflow.pendingText}}.
-2. Transition to sendToDashboard immediately. Send no message before transitioning.
+<extraction>
+When the message contains anything to file, build a JSON array and store it as a string in {{workflow.itemsJson}}. One object per item — a single message often holds several. Also copy the user's message verbatim into {{workflow.pendingText}}.
 
+Per object, include only the fields the user actually gave you:
+- kind: "task" | "meeting" | "appointment" | "reminder" | "decision"
+- title: a short clear Arabic phrase, 3 to 8 words, no filler like "مطلوب" or "لازم"
+- details: any extra wording from the message itself
+- owner_name: the responsible person. "أنا" or "هعمل" means the sender.
+- department: only if named
+- priority: "urgent" | "high" | "normal" | "low" — urgent only for حالاً / ضروري النهاردة
+- due_date: "YYYY-MM-DD", calculated from <current_date>. "بكره" is the next day, "الأسبوع الجاي" is +7 days.
+- due_time: "HH:MM", 24-hour. An evening "5" is "17:00". Omit it if no time was said.
+- duration_min: whole minutes. Use 60 for a meeting with no stated length.
+- location: only if named
+- attendees: array of names, excluding the owner
+- needs_review: true when the owner or the time is missing and the item needs one
+
+Example — "أحمد يجهّز تقرير التذاكر قبل الخميس، واجتماع مع المبيعات بكره ٢ الضهر ساعة" on Wed 2026-07-22:
+[{"kind":"task","title":"تجهيز تقرير التذاكر","owner_name":"أحمد","due_date":"2026-07-23","priority":"normal"},{"kind":"meeting","title":"اجتماع مع فريق المبيعات","due_date":"2026-07-23","due_time":"14:00","duration_min":60,"needs_review":true}]
+
+Then transition to sendToDashboard immediately, with no message first.
+</extraction>
+
+<tasks>
 ACTIVATION
-If the dashboard's last reply said this chat is not activated ("الشات ده لسه مش مفعّل"), then the user's next message is their join code. Store it in {{workflow.pendingText}} exactly as typed and transition to sendToDashboard — even if it is only a number or a single word.
+If the dashboard's last reply said this chat is not activated ("الشات ده لسه مش مفعّل"), the user's next message is their join code. Put it in {{workflow.pendingText}} exactly as typed, leave {{workflow.itemsJson}} empty, and transition to sendToDashboard — even if it is only a number.
 
 MISSING OWNER OR TIME
-If it is clearly an action item but the owner or the time is missing, ask ONE short question about the missing piece only. If the user says it is not decided yet, or ignores the question, file it as-is — the dashboard flags it for review.
+If it is clearly an action item but the owner or the time is missing, ask ONE short question about the missing piece only. If the user says it is not decided yet, or ignores the question, file it with needs_review set to true.
 
 AGENDA
 When the user asks about today's or tomorrow's schedule, what is due, what is late, or "إيه المطلوب مني", transition to getAgenda.
 
 SMALL TALK
-Greetings, thanks, or questions about what you can do: one short sentence saying you file tasks, meetings and appointments and can show the agenda. No transition.
+Greetings, thanks, or questions about what you can do: one short sentence saying you file tasks, meetings and appointments and can show the agenda. No transition, and leave both variables empty.
 </tasks>
 
 <boundaries>
@@ -93,10 +128,6 @@ Greetings, thanks, or questions about what you can do: one short sentence saying
 </current_date>
 ```
 
-**Why it's short:** this node only routes. The heavy prompt — kinds,
-priorities, absolute timestamps, confidence, review flags — is the extraction
-prompt, and it runs server-side against a JSON schema.
-
 ---
 
 ## 3. Transitions
@@ -107,7 +138,7 @@ decide, so each names the trigger *and* the precondition.
 **→ `sendToDashboard`**
 
 ```
-Go here when the user's message contains a task, meeting, appointment, reminder, or decision that must be filed — or when it is the join code the dashboard just asked for — and you have already copied their full message text into {{workflow.pendingText}}. Transition immediately, without sending any message first.
+Go here when the user's message contains a task, meeting, appointment, reminder, or decision that must be filed, and you have already written the JSON array into {{workflow.itemsJson}} and the user's message into {{workflow.pendingText}}. Also go here when the message is the join code the dashboard just asked for, with {{workflow.itemsJson}} left empty. Transition immediately, without sending any message first.
 ```
 
 **→ `getAgenda`**
@@ -133,6 +164,7 @@ const u = user as any
 const e = event as any
 
 const text = (w.pendingText || e?.payload?.text || '').toString().trim()
+const itemsJson = (w.itemsJson || '').toString().trim()
 
 // Telegram identifiers. Botpress preprocesses the update, so these live on
 // event.tags — not on event.payload.from. Nothing here is configured by hand.
@@ -143,15 +175,26 @@ const chatId = String(
   ''
 )
 const messageId = String(e?.tags?.message?.['telegram:id'] || e?.id || '')
-const sender = String(u?.name || u?.data?.fullName || '')
+const sender = String(
+  u?.name ||
+  u?.data?.fullName ||
+  e?.tags?.user?.['telegram:name'] ||
+  e?.tags?.user?.['telegram:username'] ||
+  ''
+)
 
-if (!text) {
+if (!text && !itemsJson) {
   w.dashboardReply = 'مفيش نص أقدر أسجّله. ابعت اللي مطلوب تاني.'
 } else {
+  // items is sent as the raw string — the server parses it. text always rides
+  // along so the original wording is kept as the audit trail.
+  const payload: any = { text, sender, chat_id: chatId, message_id: messageId }
+  if (itemsJson) payload.items = itemsJson
+
   try {
     const res = await axios.post(
       'https://YOUR-APP.up.railway.app/api/management/ingest',
-      { text, sender, chat_id: chatId, message_id: messageId },
+      payload,
       {
         headers: {
           'Content-Type': 'application/json',
@@ -161,13 +204,15 @@ if (!text) {
       }
     )
     w.dashboardReply = res.data?.reply || 'اتسجّل.'
+    console.log('ingest ok:', res.status, JSON.stringify(res.data).slice(0, 300))
   } catch (err: any) {
-    console.log('ingest failed:', err?.response?.status, err?.message)
+    console.log('ingest failed:', err?.response?.status, JSON.stringify(err?.response?.data || err?.message))
     w.dashboardReply = 'حصلت مشكلة أثناء التسجيل. ابعت الرسالة تاني بعد شوية.'
   }
 }
 
 w.pendingText = ''
+w.itemsJson = ''
 ```
 
 **Card 2 — Text Message:** `{{workflow.dashboardReply}}`
@@ -254,7 +299,7 @@ sendToDashboard, show the returned reply to the user verbatim."*
 ## 8. Checklist
 
 - [ ] Telegram integration installed in Botpress and connected to the bot token
-- [ ] `pendingText` and `dashboardReply` exist with Allow Write Access ON
+- [ ] `itemsJson`, `pendingText` and `dashboardReply` exist as **String**, Allow Write Access ON
 - [ ] Autonomous Node: **Allow Conversation ON**
 - [ ] Execute Code cards renamed (`sendToDashboard`, `getAgenda`)
 - [ ] URL and `x-engosoft-secret` filled in on both cards
@@ -274,4 +319,12 @@ sendToDashboard, show the returned reply to the user verbatim."*
 | `صباح الخير` | short reply, nothing stored |
 
 If a message stores nothing, open the tab's **الوارد من تليجرام** card — the
-raw text is there with the failure reason.
+raw text is there with the failure reason printed underneath it. The Inspector
+also logs `ingest ok:` with the API's full response, so you can see exactly how
+many items the server accepted from what the node sent.
+
+**No `ANTHROPIC_API_KEY` is needed for this path.** The server only calls a
+model when a message arrives with no `items` — which is what the direct
+Telegram route does. Leave the key unset and Botpress-filed items still work;
+a message that somehow arrives without items is stored raw and flagged for
+review instead.

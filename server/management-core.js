@@ -440,10 +440,11 @@ async function extract(text, sender) {
   try {
     response = await callModel(client, context, true);
   } catch (err) {
-    if (!(err instanceof Anthropic.APIError)) throw err;
-    console.error(
-      `[management] structured extraction rejected (${err.status} ${err.message}) — retrying without it`,
-    );
+    // Only a 400 means "I don't accept this parameter". A bad key, a missing
+    // model or a rate limit fail identically on the second call — retrying
+    // them just doubles the latency before the same error comes back.
+    if (!(err instanceof Anthropic.APIError) || err.status !== 400) throw err;
+    console.error(`[management] structured outputs rejected (${err.message}) — retrying without them`);
     structured = false;
     response = await callModel(client, context, false);
   }
@@ -496,6 +497,58 @@ function toTimestamp(value) {
   return years > 5 ? null : date.toISOString();
 }
 
+/**
+ * `2026-07-23` + `17:00` → a real instant in the configured timezone.
+ *
+ * Splitting the work this way is the point: an LLM is reliable at turning
+ * «بكره الساعة ٥» into a date and a clock time, and unreliable at appending
+ * the right UTC offset — that flips twice a year and it will happily write
+ * +02:00 in July. So the caller sends the two plain fields and this composes
+ * the timestamp with the offset that actually applies on that date.
+ */
+function composeLocal(dateValue, timeValue) {
+  const day = typeof dateValue === 'string' ? dateValue.trim() : '';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+
+  const raw = typeof timeValue === 'string' ? timeValue.trim() : '';
+  const match = /^(\d{1,2}):(\d{2})$/.exec(raw);
+  const time = match
+    ? `${match[1].padStart(2, '0')}:${match[2]}`
+    : '09:00'; // a day with no clock time means "some time that morning"
+
+  // Read the offset at roughly the right instant so a DST boundary lands on
+  // the correct side of the switch.
+  const approx = new Date(`${day}T${time}:00Z`);
+  if (Number.isNaN(approx.getTime())) return null;
+
+  return toTimestamp(`${day}T${time}:00${offsetLabel(approx)}`);
+}
+
+/**
+ * Whatever the caller put in `items`: an array, a JSON string, a fenced code
+ * block, or a single object. Botpress hands over a string more often than not,
+ * and losing the whole message to a stray ``` is not a reasonable failure.
+ */
+function parseItemsPayload(value) {
+  if (Array.isArray(value)) return value;
+  if (value && typeof value === 'object') return [value];
+  if (typeof value !== 'string') return [];
+
+  const start = value.search(/[[{]/);
+  const end = Math.max(value.lastIndexOf(']'), value.lastIndexOf('}'));
+  if (start === -1 || end <= start) return [];
+
+  try {
+    const parsed = JSON.parse(value.slice(start, end + 1));
+    if (Array.isArray(parsed)) return parsed;
+    if (Array.isArray(parsed?.items)) return parsed.items;
+    return [parsed];
+  } catch {
+    console.error('[management] items payload was not valid JSON');
+    return [];
+  }
+}
+
 function toInt(value, max) {
   const n = Number(value);
   if (!Number.isFinite(n) || n <= 0) return null;
@@ -508,7 +561,9 @@ function normalizeItem(input, defaults = {}) {
   if (!title) return null;
 
   const kind = pick(input?.kind, KINDS, 'task');
-  const dueAt = toTimestamp(input?.due_at);
+  // Either an absolute timestamp, or the date/time pair the caller's LLM is
+  // actually good at producing.
+  const dueAt = toTimestamp(input?.due_at) ?? composeLocal(input?.due_date, input?.due_time);
   const owner = str(input?.owner_name, 120);
 
   const confidence = Number(input?.confidence);
@@ -629,7 +684,8 @@ function fallbackItems(text) {
  */
 export async function ingest({ text, sender, chatId, messageId, source = 'telegram', items }) {
   const message = str(text, MAX_TEXT_CHARS);
-  const hasItems = Array.isArray(items) && items.length > 0;
+  const provided = parseItemsPayload(items);
+  const hasItems = provided.length > 0;
   if (!message && !hasItems) throw new ManagementError('الرسالة فاضية.', 400);
 
   // Enrollment gate. A new chat's first message must be the join code; the id
@@ -663,19 +719,24 @@ export async function ingest({ text, sender, chatId, messageId, source = 'telegr
   let error = null;
 
   if (hasItems) {
-    // The caller already extracted. Trust the shape, not the values —
-    // everything still goes through normalizeItem below.
-    parsed = { items, summary: '', reply: '', model: 'client' };
+    // The caller already extracted — no model call happens here at all. Trust
+    // the shape, not the values: everything still goes through normalizeItem.
+    parsed = { items: provided, summary: '', reply: '', model: 'client' };
   } else {
     try {
       parsed = (await extract(message, reporter)) ?? fallbackItems(message);
     } catch (err) {
-      // Keep the status alongside the text — "400 …" and "404 …" need very
-      // different fixes, and this string is what the tab shows on the row.
-      error =
-        err instanceof Anthropic.APIError
-          ? `${err.status ?? 'API'}: ${err.message}`.slice(0, 500)
-          : String(err?.message ?? err).slice(0, 500);
+      // This string is what the tab prints on the row, so it leads with the
+      // fix in Arabic and keeps the raw API text behind it for the details.
+      const hint =
+        err instanceof Anthropic.AuthenticationError
+          ? 'مفتاح Anthropic غلط أو ناقص على السيرفر — '
+          : err instanceof Anthropic.NotFoundError
+            ? 'الموديل مش متاح للمفتاح ده — '
+            : err instanceof Anthropic.RateLimitError
+              ? 'ضغط على المساعد، جرّب بعد شوية — '
+              : '';
+      error = `${hint}${String(err?.message ?? err)}`.slice(0, 500);
       console.error('[management] extraction failed:', error);
       parsed = { items: [], summary: '', reply: 'حصلت مشكلة أثناء تحليل الرسالة. جرّب تبعتها تاني.', model: null };
     }
@@ -742,7 +803,14 @@ export async function ingest({ text, sender, chatId, messageId, source = 'telegr
   };
 }
 
-/** Used when the model gave us no reply text (fallback path, or items-in). */
+/** Arabic counted-noun agreement — «بندين» reads native, «2 بند» reads machine. */
+function arItems(count) {
+  if (count === 1) return 'بند واحد';
+  if (count === 2) return 'بندين';
+  return `${count} ${count >= 3 && count <= 10 ? 'بنود' : 'بند'}`;
+}
+
+/** Used when the caller sent items itself, or on the no-model fallback. */
 function buildReply(rows) {
   if (!rows.length) return 'مفيش بنود اتسجّلت من الرسالة دي.';
   const lines = rows.slice(0, 5).map((row) => {
@@ -751,9 +819,9 @@ function buildReply(rows) {
   });
   const review = rows.filter((r) => r.needs_review).length;
   return [
-    `اتسجّل ${rows.length} بند:`,
+    `اتسجّل ${arItems(rows.length)}:`,
     ...lines,
-    review ? `\n${review} منهم محتاج مراجعة في لوحة الإدارة.` : '',
+    review ? `\n${arItems(review)} محتاج مراجعة في اللوحة.` : '',
   ]
     .filter(Boolean)
     .join('\n');
