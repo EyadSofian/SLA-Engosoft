@@ -144,6 +144,8 @@ export const NOUN = {
   agent: { one: 'موظف واحد', two: 'موظفين', few: 'موظفين', many: 'موظف' },
   quote: { one: 'عرض واحد', two: 'عرضين', few: 'عروض', many: 'عرض' },
   call: { one: 'مكالمة واحدة', two: 'مكالمتين', few: 'مكالمات', many: 'مكالمة' },
+  item: { one: 'بند واحد', two: 'بندين', few: 'بنود', many: 'بند' },
+  result: { one: 'نتيجة واحدة', two: 'نتيجتين', few: 'نتايج', many: 'نتيجة' },
 } satisfies Record<string, ArNoun>;
 
 const dateFmt = new Intl.DateTimeFormat(AR, { day: 'numeric', month: 'long', year: 'numeric' });
@@ -161,6 +163,29 @@ export function fmtShortDate(iso: string | null | undefined): string {
   if (!iso) return '—';
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? '—' : shortDateFmt.format(d);
+}
+
+const timeFmt = new Intl.DateTimeFormat(AR, { hour: '2-digit', minute: '2-digit' });
+const dateTimeFmt = new Intl.DateTimeFormat(AR, {
+  weekday: 'short',
+  day: 'numeric',
+  month: 'short',
+  hour: '2-digit',
+  minute: '2-digit',
+});
+
+/** `10:30` — for agenda rows where the day is already established. */
+export function fmtTime(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? '—' : timeFmt.format(d);
+}
+
+/** `الأحد، 22 يوليو، 10:30` — a moment that needs both day and hour. */
+export function fmtDateTime(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? '—' : dateTimeFmt.format(d);
 }
 
 /**

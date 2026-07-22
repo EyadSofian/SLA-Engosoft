@@ -2,6 +2,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import { ask, parseRequest, toHttpError } from './chat-core.js';
+import { handleManagement } from './management-core.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const dist = path.join(here, '..', 'dist');
@@ -21,6 +22,21 @@ app.post('/api/chat', async (req, res) => {
     if (status >= 500) console.error('[chat]', err);
     res.status(status === 200 ? 200 : status).json(status === 200 ? { answer: message } : { error: message });
   }
+});
+
+// Management workspace: tasks, meetings and the Telegram intake webhook.
+// One handler for every verb — auth and routing live in management-core.
+app.all('/api/management/:route/:id?', async (req, res) => {
+  const { status, body } = await handleManagement({
+    method: req.method,
+    segments: [req.params.route, req.params.id].filter(Boolean),
+    query: req.query,
+    body: req.body ?? {},
+    headers: req.headers,
+    // Behind Railway's proxy the socket address is the proxy, not the client.
+    ip: String(req.headers['x-forwarded-for'] ?? '').split(',')[0].trim() || req.ip,
+  });
+  res.status(status).json(body);
 });
 
 // Hashed assets are immutable; index.html must never be cached or a deploy

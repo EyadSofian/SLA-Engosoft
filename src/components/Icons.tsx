@@ -177,3 +177,77 @@ export const IconSort = (p: IconProps) => (
     <path d="M16 19.5v-15M16 4.5 12.5 8M16 4.5 19.5 8" />
   </Svg>
 );
+
+export const IconManagement = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="4" y="5" width="16" height="16" rx="2.5" />
+    <path d="M8.5 3v4M15.5 3v4M4 10h16" />
+    <path d="m9 15 2 2 4-4" />
+  </Svg>
+);
+
+export const IconCalendar = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="3.5" y="5" width="17" height="16" rx="2.5" />
+    <path d="M8 3v4M16 3v4M3.5 10h17" />
+  </Svg>
+);
+
+export const IconPlus = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M12 5v14M5 12h14" />
+  </Svg>
+);
+
+export const IconLock = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="4.5" y="10" width="15" height="10.5" rx="2.5" />
+    <path d="M8 10V7.5a4 4 0 0 1 8 0V10" />
+    <path d="M12 14v2.5" />
+  </Svg>
+);
+
+export const IconTelegram = (p: IconProps) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M16.5 8.5 7.8 11.9a.35.35 0 0 0 .03.66l2.42.72 1.05 3.1a.35.35 0 0 0 .63.07l1.3-2 2.6 1.9a.35.35 0 0 0 .55-.2l1.6-7.35a.35.35 0 0 0-.48-.4Z" />
+    <path d="m10.25 13.28 4.9-3.4" />
+  </Svg>
+);
+
+export const IconEdit = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M4 20h4l10-10a2.12 2.12 0 0 0-3-3L5 17v3Z" />
+    <path d="m14.5 6.5 3 3" />
+  </Svg>
+);
+
+export const IconTrash = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M4.5 7h15M9.5 7V5.5a1.5 1.5 0 0 1 1.5-1.5h2a1.5 1.5 0 0 1 1.5 1.5V7" />
+    <path d="M6.5 7v12a1.5 1.5 0 0 0 1.5 1.5h8a1.5 1.5 0 0 0 1.5-1.5V7" />
+    <path d="M10.5 11v6M13.5 11v6" />
+  </Svg>
+);
+
+export const IconPlay = (p: IconProps) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="8.5" />
+    <path d="M10 8.75 15.5 12 10 15.25V8.75Z" />
+  </Svg>
+);
+
+export const IconPin = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M12 21s6.5-6.1 6.5-10.5a6.5 6.5 0 0 0-13 0C5.5 14.9 12 21 12 21Z" />
+    <circle cx="12" cy="10.5" r="2.4" />
+  </Svg>
+);
+
+export const IconUsers = (p: IconProps) => (
+  <Svg {...p}>
+    <circle cx="9.5" cy="8.5" r="3.25" />
+    <path d="M3.5 19.5a6 6 0 0 1 12 0" />
+    <path d="M16 5.6a3.25 3.25 0 0 1 0 5.8M17.5 14.4a6 6 0 0 1 3 5.1" />
+  </Svg>
+);

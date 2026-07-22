@@ -12,6 +12,7 @@ import DeptDetail from './pages/DeptDetail';
 import Tickets from './pages/Tickets';
 import Sales from './pages/Sales';
 import Recruitment from './pages/Recruitment';
+import Management from './pages/Management';
 
 /** Shown when the build has no Supabase credentials — otherwise every card
  *  would just render the same connection error. */
@@ -53,6 +54,7 @@ export default function App() {
                 <Route path="/tickets" element={<Tickets />} />
                 <Route path="/sales" element={<Sales />} />
                 <Route path="/recruitment" element={<Recruitment />} />
+                <Route path="/management" element={<Management />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </AppShell>

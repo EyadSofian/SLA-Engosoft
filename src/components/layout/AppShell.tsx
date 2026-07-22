@@ -1,6 +1,14 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import type { ReactNode } from 'react';
-import { IconDepartments, IconHome, IconInbox, IconRecruitment, IconRefresh, IconSales } from '../Icons';
+import {
+  IconDepartments,
+  IconHome,
+  IconInbox,
+  IconManagement,
+  IconRecruitment,
+  IconRefresh,
+  IconSales,
+} from '../Icons';
 import { cx } from '../ui/primitives';
 import { useRefresh } from '../../hooks/useRefresh';
 import { todayLabel } from '../../lib/format';
@@ -11,6 +19,7 @@ const NAV = [
   { to: '/tickets', label: 'التذاكر', Icon: IconInbox, end: false },
   { to: '/sales', label: 'المبيعات', Icon: IconSales, end: false },
   { to: '/recruitment', label: 'التوظيف', Icon: IconRecruitment, end: false },
+  { to: '/management', label: 'الإدارة', Icon: IconManagement, end: false },
 ] as const;
 
 function Logo({ compact = false }: { compact?: boolean }) {
@@ -72,6 +81,8 @@ function BottomNav() {
       className="fixed inset-x-0 bottom-0 z-40 border-t border-surface-line bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden"
       aria-label="التنقّل الرئيسي"
     >
+      {/* Six destinations on a 360px screen leaves ~60px each — the label drops
+          a point and truncates rather than wrapping into a second line. */}
       <div className="mx-auto flex max-w-lg items-stretch">
         {NAV.map(({ to, label, Icon, end }) => (
           <NavLink
@@ -80,15 +91,15 @@ function BottomNav() {
             end={end}
             className={({ isActive }) =>
               cx(
-                'tap flex min-h-[56px] flex-1 flex-col items-center justify-center gap-1 py-2 text-[11px] font-semibold transition',
+                'tap flex min-h-[56px] min-w-0 flex-1 flex-col items-center justify-center gap-1 px-0.5 py-2 text-[10px] font-semibold transition',
                 isActive ? 'text-brand-600' : 'text-ink-faint',
               )
             }
           >
             {({ isActive }) => (
               <>
-                <Icon className={cx('h-[22px] w-[22px]', isActive && 'stroke-[2.1]')} />
-                {label}
+                <Icon className={cx('h-[21px] w-[21px] shrink-0', isActive && 'stroke-[2.1]')} />
+                <span className="max-w-full truncate">{label}</span>
               </>
             )}
           </NavLink>
@@ -134,6 +145,7 @@ const TITLES: Record<string, string> = {
   '/tickets': 'التذاكر',
   '/sales': 'المبيعات',
   '/recruitment': 'التوظيف',
+  '/management': 'الإدارة',
 };
 
 export function AppShell({ children }: { children: ReactNode }) {

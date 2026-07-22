@@ -1,14 +1,15 @@
 # لوحة أداء الأقسام — Engosoft
 
-Read-only operations dashboard for Engosoft management: company-wide
-**helpdesk**, **SLA**, **sales/CRM/calls**, and **recruitment** performance, read
-live from Supabase over PostgREST. Arabic, RTL, mobile-first. Ships with an AI
-chat assistant and a Telegram daily digest.
+Operations dashboard for Engosoft management: company-wide **helpdesk**, **SLA**,
+**sales/CRM/calls**, and **recruitment** performance, read live from Supabase over
+PostgREST. Arabic, RTL, mobile-first. Ships with an AI chat assistant, a Telegram
+daily digest, and a passcode-gated **management** tab where tasks and meetings
+can be filed from the browser or dictated to a Telegram bot in plain Arabic.
 
 - **Stack:** React 18 · Vite · TypeScript · Tailwind CSS · Recharts
 - **Data:** Supabase REST (read-only, publishable key, RLS on)
-- **AI chat:** Anthropic Messages API behind a server-side proxy
-- **Deploy:** Railway (Express) or Vercel (static + serverless function)
+- **AI:** Anthropic Messages API behind a server-side proxy — chat, and Arabic→structured extraction for the management tab
+- **Deploy:** Railway (Express) or Vercel (static + serverless functions)
 
 ---
 
@@ -69,6 +70,13 @@ source of truth for the unit. Default is `USD`.
 | `ANTHROPIC_MODEL` | runtime, server | optional, defaults to `claude-sonnet-5` |
 | `VITE_CURRENCY` | build time | optional, defaults to `USD`. Also set `CURRENCY` (same value, no prefix) so the digest and AI chat quote the same unit. |
 | `PORT` | runtime, server | injected by Railway |
+| `SUPABASE_SERVICE_KEY` | runtime, server | **secret** key — management tab only, the one write path in the project |
+| `MANAGEMENT_PASSCODE` | runtime, server | opens the management tab; unset = the tab reports "not enabled" |
+| `MANAGEMENT_WEBHOOK_SECRET` | runtime, server | shared secret for the Botpress / Telegram intake |
+| `MANAGEMENT_JOIN_CODE` | runtime, server | first-contact activation code for chats; unset = no chat-level gate |
+
+The management tab has a few more optional variables (team roster, timezone,
+allow-listed chats) — see [`docs/management-ai.md`](docs/management-ai.md) §2.
 
 > **Never put the Supabase `secret` / `service_role` key in a `VITE_` variable.**
 > Anything prefixed `VITE_` is inlined into the JavaScript bundle and is public.
@@ -131,6 +139,33 @@ department. On Sundays it appends a per-department weekly roll-up.
 
 ---
 
+## 5. Management tab (tasks · meetings · appointments)
+
+`/management` — behind a passcode, and the only part of the project that writes.
+Two ways in: the form in the tab, or a Telegram message in plain Egyptian
+Arabic that Claude turns into structured rows ("اجتماع مع المبيعات بكرة ٢ الضهر
+ساعة، وأحمد يجهّز تقرير التذاكر قبل الخميس" → a meeting with a real timestamp and
+a task with an owner). Anything the model wasn't sure about lands in a review
+lane instead of looking confirmed.
+
+1. Run [`supabase/management-schema.sql`](supabase/management-schema.sql). It
+   creates `mgmt_item`, `mgmt_ingest` and `mgmt_member` with **no anon access** —
+   unlike every other table here, this data never reaches the browser's key.
+2. Add `SUPABASE_SERVICE_KEY`, `MANAGEMENT_PASSCODE`, `MANAGEMENT_WEBHOOK_SECRET`
+   and `MANAGEMENT_JOIN_CODE`, then redeploy.
+3. Point the chat front-end at `POST /api/management/ingest` — Botpress Cloud,
+   n8n, or Telegram straight at `/api/management/telegram`.
+
+Access from chat is self-service: a new chat sends the join code once and the
+server records the id it already saw on the request. No chat id is ever
+configured by hand.
+
+Full setup, the API contract, the extraction prompt, and a ready-to-paste
+Botpress bot: [`docs/management-ai.md`](docs/management-ai.md) ·
+[`docs/botpress-management-bot.md`](docs/botpress-management-bot.md).
+
+---
+
 ## Project structure
 
 ```
@@ -139,20 +174,27 @@ src/
     supabase.ts     PostgREST client — select() + exact-count via Content-Range
     metrics.ts      roll-ups, dept health thresholds, agent leaderboard
     format.ts       Arabic number/date/currency + counted-noun agreement
+    management.ts   /api/management client, session token, labels, sorting
     theme.ts        chart tokens (validated palettes)
   hooks/            useAsync (no skeleton flash on refetch), refresh, toasts
   components/
     layout/         sidebar (desktop) + bottom nav (mobile)
     charts/         AgingBars, SalesTrend, ChartFrame (table-view twin)
     chat/           floating AI assistant
+    management/     passcode gate, item card, create/edit sheet, kind picker
     ui/             Card, StatTile, Ring, Meter, StatusPill, Skeleton, Toast
-  pages/            Overview · Departments · DeptDetail · Sales
+  pages/            Overview · Departments · DeptDetail · Tickets · Sales ·
+                    Recruitment · Management
 server/
-  chat-core.js      prompt, validation, Anthropic call, error mapping
-  index.js          Express: static + /api/chat + SPA fallback
-api/chat.js         same handler, Vercel signature
+  chat-core.js        prompt, validation, Anthropic call, error mapping
+  management-core.js  passcode session, Supabase writes, Arabic→JSON extraction,
+                      Telegram + Botpress webhooks
+  index.js            Express: static + /api/chat + /api/management + SPA fallback
+api/chat.js                        same chat handler, Vercel signature
+api/management/[[...segments]].js  same management router, Vercel signature
 scripts/            telegram-digest.js
-supabase/           policies.sql
+supabase/           policies.sql · operational-schema-v2.sql · management-schema.sql
+docs/               operations-v2.md · management-ai.md · botpress-management-bot.md
 n8n/                daily digest workflow
 ```
 
@@ -193,7 +235,10 @@ back to skeletons.
 
 ## Notes and limits
 
-- The dashboard is **read-only**. There is no write path anywhere in the client.
+- Every reporting page is **read-only** — the browser's Supabase key can only
+  `SELECT`. The single write path is the management tab, and it doesn't write
+  from the browser either: it calls `/api/management/*`, which holds the secret
+  key server-side and checks a passcode token first.
 - `fact_ticket` queries are capped at 5,000 rows per department and `fact_call`
   at 5,000 rows per month. Beyond that, move the aggregation into a SQL view.
 - The AI assistant is given only the rows fetched for the current question and
