@@ -390,6 +390,34 @@ function aiClient() {
   return anthropic;
 }
 
+/** Appended when we can't use structured outputs and have to ask for JSON. */
+const JSON_ONLY_SUFFIX = `رجّع JSON صالح بس — من غير أي شرح قبله أو بعده ومن غير علامات markdown. الشكل بالظبط:
+{"items":[{"kind":"task","title":"","details":"","owner_name":"","department":"","priority":"normal","due_at":"","duration_min":0,"location":"","attendees":[],"tags":[],"confidence":0,"needs_review":false}],"summary":"","reply":""}`;
+
+function callModel(client, context, structured) {
+  const params = {
+    model: MODEL,
+    max_tokens: 4000,
+    system: structured ? EXTRACTION_PROMPT : `${EXTRACTION_PROMPT}\n\n${JSON_ONLY_SUFFIX}`,
+    messages: [{ role: 'user', content: context }],
+  };
+
+  if (structured) {
+    params.thinking = { type: 'adaptive' };
+    params.output_config = { effort: 'low', format: { type: 'json_schema', schema: EXTRACTION_SCHEMA } };
+  }
+
+  return client.messages.create(params);
+}
+
+/** Tolerates a fenced or chatty answer — only used on the unstructured path. */
+function parseJson(raw) {
+  const start = raw.indexOf('{');
+  const end = raw.lastIndexOf('}');
+  if (start === -1 || end <= start) throw new SyntaxError('no JSON object in response');
+  return JSON.parse(raw.slice(start, end + 1));
+}
+
 async function extract(text, sender) {
   const client = aiClient();
   if (!client) return null;
@@ -404,14 +432,21 @@ async function extract(text, sender) {
     .filter(Boolean)
     .join('\n');
 
-  const response = await client.messages.create({
-    model: MODEL,
-    max_tokens: 4000,
-    thinking: { type: 'adaptive' },
-    output_config: { effort: 'low', format: { type: 'json_schema', schema: EXTRACTION_SCHEMA } },
-    system: EXTRACTION_PROMPT,
-    messages: [{ role: 'user', content: context }],
-  });
+  // Structured outputs are the fast path, not a hard dependency. If the model,
+  // the account or the installed SDK rejects the parameter, falling back to a
+  // plain JSON answer costs one extra call — losing the message costs the day.
+  let response;
+  let structured = true;
+  try {
+    response = await callModel(client, context, true);
+  } catch (err) {
+    if (!(err instanceof Anthropic.APIError)) throw err;
+    console.error(
+      `[management] structured extraction rejected (${err.status} ${err.message}) — retrying without it`,
+    );
+    structured = false;
+    response = await callModel(client, context, false);
+  }
 
   if (response.stop_reason === 'refusal') {
     throw new ManagementError('المساعد رفض يحلّل الرسالة دي.', 200);
@@ -424,7 +459,7 @@ async function extract(text, sender) {
     .trim();
 
   try {
-    return { ...JSON.parse(raw), model: MODEL };
+    return { ...(structured ? JSON.parse(raw) : parseJson(raw)), model: MODEL };
   } catch {
     console.error('[management] extraction returned non-JSON:', raw.slice(0, 300));
     throw new ManagementError('رد المساعد مش مفهوم. جرّب تاني.', 502);
@@ -635,7 +670,13 @@ export async function ingest({ text, sender, chatId, messageId, source = 'telegr
     try {
       parsed = (await extract(message, reporter)) ?? fallbackItems(message);
     } catch (err) {
-      error = err instanceof Error ? err.message : String(err);
+      // Keep the status alongside the text — "400 …" and "404 …" need very
+      // different fixes, and this string is what the tab shows on the row.
+      error =
+        err instanceof Anthropic.APIError
+          ? `${err.status ?? 'API'}: ${err.message}`.slice(0, 500)
+          : String(err?.message ?? err).slice(0, 500);
+      console.error('[management] extraction failed:', error);
       parsed = { items: [], summary: '', reply: 'حصلت مشكلة أثناء تحليل الرسالة. جرّب تبعتها تاني.', model: null };
     }
   }

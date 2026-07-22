@@ -478,6 +478,16 @@ function Workspace({ meta, onLock }: { meta: SessionMeta; onLock: () => void }) 
                 <p className="mt-1.5 line-clamp-2 text-xs leading-relaxed text-ink" title={entry.raw_text}>
                   {entry.raw_text}
                 </p>
+                {/* The reason is already stored — printing it here is the
+                    difference between "it failed" and a fixable report. */}
+                {entry.status === 'failed' && entry.error && (
+                  <p
+                    dir="ltr"
+                    className="mt-1.5 overflow-x-auto whitespace-pre-wrap break-words rounded-lg bg-white/70 px-2 py-1 text-start font-mono text-[10px] leading-relaxed text-status-bad"
+                  >
+                    {entry.error}
+                  </p>
+                )}
               </li>
             ))}
           </ul>
