@@ -9,6 +9,7 @@ export interface DeptSummary {
   unassigned_cnt: number;
   urgent_cnt: number;
   failed_cnt: number;
+  sla_ticket_cnt?: number;
   avg_resolution_hours: number | null;
   sla_met_pct: number | null;
   backlog_1_3: number;
@@ -38,6 +39,17 @@ export interface FactTicket {
   resolution_hours: number | null;
   aging_days: number | null;
   sla_failed: boolean | null;
+  write_date?: string | null;
+  assign_date?: string | null;
+  last_stage_update?: string | null;
+  first_response_hours?: number | null;
+  sla_count?: number;
+  sla_failed_count?: number;
+  sla_reached_count?: number;
+  sla_deadline?: string | null;
+  sla_state?: 'no_sla' | 'ongoing' | 'reached' | 'failed';
+  sla_remaining_seconds?: number | null;
+  sla_exceeded_hours?: number | null;
   synced_at?: string | null;
 }
 
@@ -94,4 +106,57 @@ export interface FactCall {
   talk_sec: number | null;
   disposition: string | null;
   started_at: string | null;
+  from_number?: string | null;
+  to_number?: string | null;
+  remote_number?: string | null;
+  call_duration_sec?: number | null;
+}
+
+export interface SalesRepMonthly {
+  month: string;
+  user_id: number;
+  user_name: string;
+  team_name: string | null;
+  open_leads: number;
+  new_leads: number;
+  contacted_leads: number;
+  uncontacted_leads: number;
+  avg_first_call_minutes: number | null;
+  won_leads: number;
+  lost_leads: number;
+  outbound_calls: number;
+  answered_calls: number;
+  talk_sec: number;
+  new_pipeline: number;
+  won_revenue: number;
+  contact_pct: number | null;
+  conversion_pct: number | null;
+  answer_pct: number | null;
+}
+
+export interface RecruitmentApplicant {
+  applicant_id: number;
+  applicant_name: string | null;
+  job_id: number | null;
+  job_name: string | null;
+  department_name: string | null;
+  stage_id: number | null;
+  stage_name: string | null;
+  recruiter_user_id: number | null;
+  recruiter_name: string | null;
+  application_status: string | null;
+  priority: string | null;
+  applied_at: string | null;
+  assigned_at: string | null;
+  last_stage_at: string | null;
+  hired_at: string | null;
+  refused_at: string | null;
+  refuse_reason: string | null;
+  next_activity_deadline: string | null;
+  next_interview_at: string | null;
+  active: boolean;
+  age_days: number | null;
+  stage_age_days: number | null;
+  operational_state: 'active' | 'overdue' | 'hired' | 'closed';
+  synced_at?: string | null;
 }

@@ -1,0 +1,311 @@
+{
+  "name": "Engosoft — Helpdesk Backfill From 2026-01-01 [v2]",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual-012",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -900,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "cfg-013",
+              "name": "SUPABASE_URL",
+              "value": "https://jrenyjmbbizborhbwptz.supabase.co",
+              "type": "string"
+            },
+            {
+              "id": "cfg-014",
+              "name": "SUPABASE_KEY",
+              "value": "REPLACE_WITH_SUPABASE_SECRET_IN_N8N_ONLY",
+              "type": "string"
+            },
+            {
+              "id": "cfg-015",
+              "name": "FROM_DATE",
+              "value": "2026-01-01 00:00:00",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "config-016",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -680,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "custom",
+        "customResource": "helpdesk.stage",
+        "operation": "getAll",
+        "returnAll": true,
+        "options": {}
+      },
+      "id": "odoo-017",
+      "name": "Get Stages",
+      "type": "n8n-nodes-base.odoo",
+      "typeVersion": 1,
+      "position": [
+        -460,
+        120
+      ],
+      "credentials": {
+        "odooApi": {
+          "id": "a2EBSJpQlmB0wr29",
+          "name": "Odoo Live"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "custom",
+        "customResource": "helpdesk.ticket",
+        "operation": "getAll",
+        "returnAll": true,
+        "options": {},
+        "filterRequest": {
+          "filter": [
+            {
+              "fieldName": "write_date",
+              "operator": "greaterOrEqual",
+              "value": "={{ $('Config').first().json.FROM_DATE }}"
+            }
+          ]
+        }
+      },
+      "id": "odoo-018",
+      "name": "Get Tickets",
+      "type": "n8n-nodes-base.odoo",
+      "typeVersion": 1,
+      "position": [
+        -240,
+        120
+      ],
+      "credentials": {
+        "odooApi": {
+          "id": "a2EBSJpQlmB0wr29",
+          "name": "Odoo Live"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "custom",
+        "customResource": "helpdesk.sla.status",
+        "operation": "getAll",
+        "returnAll": true,
+        "options": {}
+      },
+      "id": "odoo-019",
+      "name": "Get SLA Status",
+      "type": "n8n-nodes-base.odoo",
+      "typeVersion": 1,
+      "position": [
+        -20,
+        120
+      ],
+      "credentials": {
+        "odooApi": {
+          "id": "a2EBSJpQlmB0wr29",
+          "name": "Odoo Live"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst iso = (s) => {\n  if (!s) return null;\n  const d = new Date(String(s).replace(' ', 'T') + (String(s).includes('T') ? '' : 'Z'));\n  return Number.isNaN(d.getTime()) ? null : d.toISOString();\n};\nconst ms = (s) => { const v = iso(s); return v ? new Date(v).getTime() : null; };\nconst rel = (v) => Array.isArray(v) ? { id: v[0] ?? null, name: v[1] ?? null } : { id: null, name: null };\nconst rows = (name) => $(name).all().map(i => i.json).filter(r => r && r.id != null);\nconst now = Date.now();\n\nconst folds = new Map(rows('Get Stages').map(s => [s.id, !!s.fold]));\nconst statuses = rows('Get SLA Status');\nconst slaByTicket = new Map();\nconst slas = statuses.map(s => {\n  const ticket = rel(s.ticket_id).id;\n  const deadlineMs = ms(s.deadline);\n  const reachedMs = ms(s.reached_datetime);\n  const failed = deadlineMs != null && ((reachedMs != null && reachedMs > deadlineMs) || (reachedMs == null && deadlineMs < now));\n  const status = failed ? 'failed' : reachedMs != null ? 'reached' : 'ongoing';\n  const exceededHours = failed ? +(((reachedMs || now) - deadlineMs) / 3600000).toFixed(2) : 0;\n  const list = slaByTicket.get(ticket) || [];\n  list.push(status);\n  slaByTicket.set(ticket, list);\n  return {\n    sla_status_id: s.id, ticket_id: ticket, sla_id: rel(s.sla_id).id,\n    sla_name: rel(s.sla_id).name, deadline: iso(s.deadline), reached_at: iso(s.reached_datetime),\n    status, exceeded_hours: exceededHours, exceeded_days: +(exceededHours / 24).toFixed(2),\n    synced_at: new Date().toISOString()\n  };\n});\n\nconst tickets = rows('Get Tickets').map(t => {\n  const stage = rel(t.stage_id);\n  const user = rel(t.user_id);\n  const team = rel(t.team_id);\n  const created = ms(t.create_date);\n  const closed = ms(t.close_date);\n  const isClosed = (stage.id != null && folds.get(stage.id) === true) || closed != null;\n  const ticketSlas = slaByTicket.get(t.id) || [];\n  const priority = Number.parseInt(t.priority || '0', 10) || 0;\n  return {\n    ticket_id: t.id, ticket_ref: String(t.ticket_ref || t.id), subject: t.name || null,\n    team_name: team.name, agent_user_id: user.id, agent_name: user.name,\n    stage_name: stage.name, is_open: !isClosed, is_closed: isClosed,\n    is_unassigned: user.id == null, is_urgent: priority === 3, priority,\n    partner_name: rel(t.partner_id).name,\n    csat: t.rating_last_value != null && Number(t.rating_last_value) !== 0 ? Number(t.rating_last_value) : null,\n    create_date: iso(t.create_date), close_date: iso(t.close_date),\n    resolution_hours: created && closed ? +((closed - created) / 3600000).toFixed(2) : null,\n    aging_days: !isClosed && created ? +((now - created) / 86400000).toFixed(2) : null,\n    sla_failed: ticketSlas.length ? ticketSlas.includes('failed') : null,\n    write_date: iso(t.write_date), assign_date: iso(t.assign_date),\n    last_stage_update: iso(t.date_last_stage_update),\n    first_response_hours: t.first_response_hours == null ? null : Number(t.first_response_hours),\n    synced_at: new Date().toISOString()\n  };\n});\nreturn [{ json: { tickets, slas } }];"
+      },
+      "id": "code-020",
+      "name": "Build Helpdesk",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        200,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.SUPABASE_URL }}/rest/v1/fact_ticket",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $('Config').first().json.SUPABASE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Config').first().json.SUPABASE_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "resolution=merge-duplicates,return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify($json.tickets) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "http-021",
+      "name": "Upsert Tickets",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        420,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.SUPABASE_URL }}/rest/v1/fact_sla",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $('Config').first().json.SUPABASE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Config').first().json.SUPABASE_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "resolution=merge-duplicates,return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify($('Build Helpdesk').first().json.slas) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "http-022",
+      "name": "Upsert SLA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        640,
+        120
+      ]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Get Stages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Stages": {
+      "main": [
+        [
+          {
+            "node": "Get Tickets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Tickets": {
+      "main": [
+        [
+          {
+            "node": "Get SLA Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get SLA Status": {
+      "main": [
+        [
+          {
+            "node": "Build Helpdesk",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Helpdesk": {
+      "main": [
+        [
+          {
+            "node": "Upsert Tickets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert Tickets": {
+      "main": [
+        [
+          {
+            "node": "Upsert SLA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "tags": []
+}

@@ -1,0 +1,132 @@
+{
+  "name": "Engosoft — Yeastar Call Webhook (30012) [v2]",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "yeastar-call",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "199c966c-3b64-48f9-9cf1-d9719347b043",
+      "name": "Yeastar Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-680, 160],
+      "webhookId": "yeastar-call-engosoft"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "c7",
+              "name": "SUPABASE_URL",
+              "value": "https://jrenyjmbbizborhbwptz.supabase.co",
+              "type": "string"
+            },
+            {
+              "id": "c8",
+              "name": "SUPABASE_KEY",
+              "value": "REPLACE_WITH_SUPABASE_SECRET_IN_N8N_ONLY",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "14fac636-a7f5-4af1-9c72-d951f2e2e97b",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [-456, 160]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Event 30012 shape: body.msg from Yeastar P-Series New CDR.\n// Read the Webhook node explicitly: the Config node intentionally outputs only settings.\nconst request = $('Yeastar Webhook').first().json || {};\nconst body = request.body || request;\nconst d = body.msg || {};\n\nconst text = (v) => v === undefined || v === null || v === '' ? null : String(v);\nconst int = (v) => { const n = Number.parseInt(v, 10); return Number.isFinite(n) ? n : null; };\nconst digits = (v) => { const s = text(v); return s ? s.replace(/\\D/g, '').slice(-10) || null : null; };\n\n// Yeastar sends time_start as local PBX time without an offset. Convert it using\n// Africa/Cairo, including Egypt's daylight-saving transitions.\nfunction cairoIso(value) {\n  if (!value) return null;\n  const s = String(value).trim();\n  if (/^\\d{10}$/.test(s)) return new Date(Number(s) * 1000).toISOString();\n  if (/^\\d{13}$/.test(s)) return new Date(Number(s)).toISOString();\n  if (/[zZ]|[+-]\\d\\d:?\\d\\d$/.test(s)) {\n    const parsed = new Date(s.replace(' ', 'T'));\n    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();\n  }\n  const m = s.match(/^(\\d{4})-(\\d{2})-(\\d{2})[ T](\\d{2}):(\\d{2})(?::(\\d{2}))?/);\n  if (!m) return null;\n  const parts = m.slice(1).map(Number);\n  const guess = Date.UTC(parts[0], parts[1] - 1, parts[2], parts[3], parts[4], parts[5] || 0);\n  const formatter = new Intl.DateTimeFormat('en-US', {\n    timeZone: 'Africa/Cairo', hourCycle: 'h23', year: 'numeric', month: '2-digit',\n    day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit'\n  });\n  const offsetAt = (utc) => {\n    const p = Object.fromEntries(formatter.formatToParts(new Date(utc)).filter(x => x.type !== 'literal').map(x => [x.type, Number(x.value)]));\n    return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - utc;\n  };\n  let utc = guess - offsetAt(guess);\n  utc = guess - offsetAt(utc);\n  return new Date(utc).toISOString();\n}\n\nconst eventType = int(body.type);\nconst callId = text(d.call_id);\nif (eventType !== 30012 || !callId) {\n  throw new Error(`Invalid Yeastar CDR event: expected type 30012 and call_id (received ${eventType || 'none'})`);\n}\n\nconst direction = text(d.type)?.toLowerCase();\nconst fromNumber = text(d.call_from);\nconst toNumber = text(d.call_to);\nconst extension = direction === 'outbound' ? fromNumber : direction === 'inbound' ? toNumber : fromNumber;\nconst remoteNumber = direction === 'outbound' ? toNumber : direction === 'inbound' ? fromNumber : toNumber;\nconst duration = int(d.call_duration);\nconst talk = int(d.talk_duration);\nconst ring = int(d.agent_ring_time) ?? (duration != null && talk != null ? Math.max(duration - talk, 0) : null);\n\nconst fact = {\n  call_id: callId,\n  extension,\n  user_id: null,\n  direction,\n  ring_sec: ring,\n  talk_sec: talk,\n  disposition: text(d.status),\n  started_at: cairoIso(d.time_start),\n  from_number: fromNumber,\n  to_number: toNumber,\n  remote_number: remoteNumber,\n  remote_normalized: digits(remoteNumber),\n  call_duration_sec: duration,\n  recording_url: text(d.recording),\n  trunk_name: direction === 'outbound' ? text(d.src_trunk_name) : text(d.dst_trunk_name)\n};\n\nconst raw = { call_id: callId, received_at: new Date().toISOString(), payload: body };\nreturn [{ json: { fact, raw } }];"
+      },
+      "id": "a47dea4d-24a2-4057-adde-1f40a7828e0f",
+      "name": "Parse Call",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-232, 160]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.SUPABASE_URL }}/rest/v1/call_raw",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $('Config').first().json.SUPABASE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $('Config').first().json.SUPABASE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "resolution=merge-duplicates,return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify([$json.raw]) }}",
+        "options": { "timeout": 20000 }
+      },
+      "id": "1974b46a-9715-4bc9-860a-482bbc9b769e",
+      "name": "Store Raw",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [0, 32]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.SUPABASE_URL }}/rest/v1/fact_call",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $('Config').first().json.SUPABASE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $('Config').first().json.SUPABASE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "resolution=merge-duplicates,return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify([$('Parse Call').first().json.fact]) }}",
+        "options": { "timeout": 20000 }
+      },
+      "id": "34344628-03fd-4af5-a5e4-9c28b8e28a90",
+      "name": "Upsert Call",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [0, 288]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: true, call_id: $('Parse Call').first().json.fact.call_id } }}",
+        "options": {}
+      },
+      "id": "7f9b412b-a992-4f70-aa2a-a809edd30df2",
+      "name": "Respond 200",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [232, 288]
+    }
+  ],
+  "connections": {
+    "Yeastar Webhook": { "main": [[{ "node": "Config", "type": "main", "index": 0 }]] },
+    "Config": { "main": [[{ "node": "Parse Call", "type": "main", "index": 0 }]] },
+    "Parse Call": {
+      "main": [[
+        { "node": "Store Raw", "type": "main", "index": 0 },
+        { "node": "Upsert Call", "type": "main", "index": 0 }
+      ]]
+    },
+    "Upsert Call": { "main": [[{ "node": "Respond 200", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "pinData": {},
+  "tags": []
+}

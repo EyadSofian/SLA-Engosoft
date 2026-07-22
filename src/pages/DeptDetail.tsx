@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { select } from '../lib/supabase';
 import type { DeptSummary, FactTicket } from '../types/db';
 import { agentLeaderboard, deptHealth, healthReason } from '../lib/metrics';
-import { NOUN, arCount, fmtCsat, fmtHours, fmtInt, fmtPct, fmtShortDate } from '../lib/format';
+import { NOUN, arCount, fmtCountdown, fmtCsat, fmtHours, fmtInt, fmtPct, fmtShortDate, fmtSince } from '../lib/format';
 import { useAsync } from '../hooks/useAsync';
 import { useRefresh } from '../hooks/useRefresh';
 import { useErrorToast } from '../hooks/useErrorToast';
@@ -23,7 +23,13 @@ import { AgingBars } from '../components/charts/AgingBars';
 import { IconBack, IconSearch } from '../components/Icons';
 
 const TICKET_COLS =
-  'ticket_id,ticket_ref,subject,team_name,agent_name,stage_name,is_open,is_closed,is_unassigned,is_urgent,priority,partner_name,csat,create_date,close_date,resolution_hours,aging_days,sla_failed';
+  'ticket_id,ticket_ref,subject,team_name,agent_name,stage_name,is_open,is_closed,is_unassigned,is_urgent,priority,partner_name,csat,create_date,close_date,resolution_hours,aging_days,sla_failed,sla_state,sla_deadline,sla_remaining_seconds,sla_exceeded_hours';
+
+const isAtRisk = (t: FactTicket) =>
+  t.sla_state === 'ongoing'
+  && t.sla_remaining_seconds != null
+  && t.sla_remaining_seconds >= 0
+  && t.sla_remaining_seconds <= 4 * 3600;
 
 /** Odoo helpdesk stores priority as '0'–'3'; anything else is shown as-is. */
 function priorityLabel(p: FactTicket['priority']): string {
@@ -59,7 +65,7 @@ export default function DeptDetail() {
 
   const tickets = useAsync(
     () =>
-      select<FactTicket>('fact_ticket', {
+      select<FactTicket>('ticket_operational', {
         select: TICKET_COLS,
         filter: { team_name: `eq.${teamName}` },
         order: 'create_date.desc',
@@ -287,6 +293,7 @@ export default function DeptDetail() {
                   <th scope="col" className="px-2 py-2 text-start font-medium">المرحلة</th>
                   <SortHeader label="الأولوية" active={sort.key === 'priority'} dir={sort.dir} onClick={() => toggleSort('priority')} />
                   <SortHeader label="العُمر" active={sort.key === 'aging_days'} dir={sort.dir} onClick={() => toggleSort('aging_days')} />
+                  <th scope="col" className="px-2 py-2 text-start font-medium">SLA</th>
                   <th scope="col" className="px-2 py-2 text-start font-medium">الحالة</th>
                 </tr>
               </thead>
@@ -296,8 +303,8 @@ export default function DeptDetail() {
                     key={t.ticket_id}
                     className={cx(
                       'border-b border-surface-line/70 last:border-0',
-                      t.sla_failed && 'bg-status-badBg/50',
-                      !t.sla_failed && t.is_urgent && 'bg-status-warnBg/50',
+                      t.sla_state === 'failed' && 'bg-status-badBg/50',
+                      t.sla_state !== 'failed' && (isAtRisk(t) || t.is_urgent) && 'bg-status-warnBg/50',
                     )}
                   >
                     <td className="whitespace-nowrap px-2 py-2 font-semibold text-navy">{t.ticket_ref ?? t.ticket_id}</td>
@@ -310,14 +317,25 @@ export default function DeptDetail() {
                     <td className="whitespace-nowrap px-2 py-2 text-ink-muted">{t.stage_name ?? '—'}</td>
                     <td className="whitespace-nowrap px-2 py-2 text-ink-muted">{priorityLabel(t.priority)}</td>
                     <td className="whitespace-nowrap px-2 py-2 text-ink-muted">
-                      {arCount(t.aging_days, NOUN.day)}
-                      <span className="ms-1 text-[11px] text-ink-faint">{fmtShortDate(t.create_date)}</span>
+                      <span title={fmtShortDate(t.create_date)}>{fmtSince(t.create_date)}</span>
+                    </td>
+                    <td className="whitespace-nowrap px-2 py-2">
+                      {t.sla_state === 'failed' ? (
+                        <span className="font-semibold text-status-bad">{fmtCountdown(t.sla_remaining_seconds)}</span>
+                      ) : t.sla_state === 'ongoing' ? (
+                        <span className={cx('font-semibold', isAtRisk(t) ? 'text-[#B45309]' : 'text-brand-600')}>{fmtCountdown(t.sla_remaining_seconds)}</span>
+                      ) : t.sla_state === 'reached' ? (
+                        <span className="font-semibold text-status-ok">تم في الموعد</span>
+                      ) : (
+                        <span className="text-ink-faint">بدون SLA</span>
+                      )}
                     </td>
                     <td className="whitespace-nowrap px-2 py-2">
                       <div className="flex gap-1">
-                        {t.sla_failed && <Badge tone="bad">SLA متأخر</Badge>}
+                        {t.sla_state === 'failed' && <Badge tone="bad">SLA متأخر</Badge>}
+                        {isAtRisk(t) && <Badge tone="warn">قرب يخلص</Badge>}
                         {t.is_urgent && <Badge tone="warn">عاجل</Badge>}
-                        {!t.sla_failed && !t.is_urgent && <Badge tone="neutral">عادي</Badge>}
+                        {t.sla_state !== 'failed' && !isAtRisk(t) && !t.is_urgent && <Badge tone="neutral">عادي</Badge>}
                       </div>
                     </td>
                   </tr>

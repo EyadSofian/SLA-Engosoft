@@ -1,0 +1,320 @@
+{
+  "name": "Engosoft — CRM Sync [v2]",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      },
+      "id": "schedule-023",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -900,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "cfg-024",
+              "name": "SUPABASE_URL",
+              "value": "https://jrenyjmbbizborhbwptz.supabase.co",
+              "type": "string"
+            },
+            {
+              "id": "cfg-025",
+              "name": "SUPABASE_KEY",
+              "value": "REPLACE_WITH_SUPABASE_SECRET_IN_N8N_ONLY",
+              "type": "string"
+            },
+            {
+              "id": "cfg-026",
+              "name": "FROM_DATE",
+              "value": "={{ new Date(Date.now() - 90*60000).toISOString().slice(0,19).replace('T',' ') }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "config-027",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -680,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "custom",
+        "customResource": "crm.stage",
+        "operation": "getAll",
+        "returnAll": true,
+        "options": {}
+      },
+      "id": "odoo-028",
+      "name": "Get CRM Stages",
+      "type": "n8n-nodes-base.odoo",
+      "typeVersion": 1,
+      "position": [
+        -460,
+        120
+      ],
+      "credentials": {
+        "odooApi": {
+          "id": "a2EBSJpQlmB0wr29",
+          "name": "Odoo Live"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "custom",
+        "customResource": "crm.team.member",
+        "operation": "getAll",
+        "returnAll": true,
+        "options": {}
+      },
+      "id": "odoo-029",
+      "name": "Get Team Members",
+      "type": "n8n-nodes-base.odoo",
+      "typeVersion": 1,
+      "position": [
+        -240,
+        120
+      ],
+      "credentials": {
+        "odooApi": {
+          "id": "a2EBSJpQlmB0wr29",
+          "name": "Odoo Live"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "custom",
+        "customResource": "crm.lead",
+        "operation": "getAll",
+        "returnAll": true,
+        "options": {},
+        "filterRequest": {
+          "filter": [
+            {
+              "fieldName": "write_date",
+              "operator": "greaterOrEqual",
+              "value": "={{ $('Config').first().json.FROM_DATE }}"
+            }
+          ]
+        }
+      },
+      "id": "odoo-030",
+      "name": "Get CRM Leads",
+      "type": "n8n-nodes-base.odoo",
+      "typeVersion": 1,
+      "position": [
+        -20,
+        120
+      ],
+      "credentials": {
+        "odooApi": {
+          "id": "a2EBSJpQlmB0wr29",
+          "name": "Odoo Live"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst iso = (s) => {\n  if (!s) return null;\n  const d = new Date(String(s).replace(' ', 'T') + (String(s).includes('T') ? '' : 'Z'));\n  return Number.isNaN(d.getTime()) ? null : d.toISOString();\n};\nconst ms = (s) => { const v = iso(s); return v ? new Date(v).getTime() : null; };\nconst rel = (v) => Array.isArray(v) ? { id: v[0] ?? null, name: v[1] ?? null } : { id: null, name: null };\nconst rows = (name) => $(name).all().map(i => i.json).filter(r => r && r.id != null);\nconst now = Date.now();\n\nconst stageWon = new Map(rows('Get CRM Stages').map(s => [s.id, !!s.is_won]));\nconst excluded = /(moderation|accounting|accountant|مودريشن|محاسب)/i;\nconst normalize = (v) => { const d = String(v || '').replace(/\\D/g, ''); return d ? d.slice(-10) : null; };\nconst leads = rows('Get CRM Leads').map(l => {\n  const user = rel(l.user_id); const team = rel(l.team_id); const stage = rel(l.stage_id);\n  const won = stageWon.get(stage.id) === true || Number(l.probability) === 100;\n  const active = l.active !== false;\n  const lost = !won && (!!rel(l.lost_reason_id).id || (!active && Number(l.probability || 0) === 0));\n  return {\n    lead_id: l.id, lead_name: l.name || null, lead_type: l.type || null,\n    user_id: user.id, user_name: user.name, team_id: team.id, team_name: team.name,\n    stage_id: stage.id, stage_name: stage.name, is_won: won, is_lost: lost, active,\n    probability: l.probability == null ? null : Number(l.probability),\n    expected_revenue: l.expected_revenue == null ? null : Number(l.expected_revenue),\n    phone: l.phone || null, mobile: l.mobile || null,\n    phone_normalized: normalize(l.mobile || l.phone), create_date: iso(l.create_date),\n    assigned_at: iso(l.date_open), last_stage_at: iso(l.date_last_stage_update),\n    closed_at: iso(l.date_closed), lost_reason: rel(l.lost_reason_id).name,\n    next_activity_deadline: l.activity_date_deadline || null, write_date: iso(l.write_date),\n    synced_at: new Date().toISOString()\n  };\n});\n\nconst roster = new Map();\nfor (const m of rows('Get Team Members')) {\n  const user = rel(m.user_id); const team = rel(m.crm_team_id || m.team_id);\n  if (!user.id || excluded.test(team.name || '')) continue;\n  roster.set(user.id, { user_id: user.id, user_name: user.name || String(user.id), team_id: team.id, team_name: team.name, active: m.active !== false, synced_at: new Date().toISOString() });\n}\nfor (const l of leads) {\n  if (!l.user_id || excluded.test(l.team_name || '') || roster.has(l.user_id)) continue;\n  roster.set(l.user_id, { user_id: l.user_id, user_name: l.user_name || String(l.user_id), team_id: l.team_id, team_name: l.team_name, active: true, synced_at: new Date().toISOString() });\n}\nreturn [{ json: { leads, roster: [...roster.values()] } }];"
+      },
+      "id": "code-031",
+      "name": "Build CRM",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        200,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.SUPABASE_URL }}/rest/v1/fact_lead",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $('Config').first().json.SUPABASE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Config').first().json.SUPABASE_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "resolution=merge-duplicates,return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify($json.leads) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "http-032",
+      "name": "Upsert CRM Leads",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        420,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.SUPABASE_URL }}/rest/v1/dim_salesperson",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $('Config').first().json.SUPABASE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Config').first().json.SUPABASE_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "resolution=merge-duplicates,return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify($('Build CRM').first().json.roster) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "http-033",
+      "name": "Upsert Sales Roster",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        640,
+        120
+      ]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Get CRM Stages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get CRM Stages": {
+      "main": [
+        [
+          {
+            "node": "Get Team Members",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Team Members": {
+      "main": [
+        [
+          {
+            "node": "Get CRM Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get CRM Leads": {
+      "main": [
+        [
+          {
+            "node": "Build CRM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build CRM": {
+      "main": [
+        [
+          {
+            "node": "Upsert CRM Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert CRM Leads": {
+      "main": [
+        [
+          {
+            "node": "Upsert Sales Roster",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "tags": []
+}

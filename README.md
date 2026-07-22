@@ -1,8 +1,9 @@
 # لوحة أداء الأقسام — Engosoft
 
-Read-only analytics dashboard for Engosoft management: company-wide **helpdesk**
-and **sales** performance, read live from Supabase over PostgREST. Arabic, RTL,
-mobile-first. Ships with an AI chat assistant and a Telegram daily digest.
+Read-only operations dashboard for Engosoft management: company-wide
+**helpdesk**, **SLA**, **sales/CRM/calls**, and **recruitment** performance, read
+live from Supabase over PostgREST. Arabic, RTL, mobile-first. Ships with an AI
+chat assistant and a Telegram daily digest.
 
 - **Stack:** React 18 · Vite · TypeScript · Tailwind CSS · Recharts
 - **Data:** Supabase REST (read-only, publishable key, RLS on)
@@ -31,6 +32,11 @@ line up automatically.
 ---
 
 ## 1. Database setup (once)
+
+For the v2 operational model, run
+[`supabase/operational-schema-v2.sql`](supabase/operational-schema-v2.sql) first.
+The production rollout order, metric definitions, and recovery checks are in
+[`docs/operations-v2.md`](docs/operations-v2.md).
 
 RLS is on, so the browser cannot read anything until read-only policies exist.
 Open the **Supabase SQL Editor** and run [`supabase/policies.sql`](supabase/policies.sql).

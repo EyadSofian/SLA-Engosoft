@@ -69,9 +69,10 @@ export function rollUp(rows: DeptSummary[]): Totals {
     t.failed += r.failed_cnt ?? 0;
     t.total += r.total_cnt ?? 0;
 
-    if (r.sla_met_pct != null && r.total_cnt > 0) {
-      weighted += r.sla_met_pct * r.total_cnt;
-      weight += r.total_cnt;
+    const slaTickets = r.sla_ticket_cnt ?? r.total_cnt;
+    if (r.sla_met_pct != null && slaTickets > 0) {
+      weighted += r.sla_met_pct * slaTickets;
+      weight += slaTickets;
     }
   }
 

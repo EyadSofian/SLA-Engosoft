@@ -10,6 +10,7 @@ import Departments from './pages/Departments';
 import DeptDetail from './pages/DeptDetail';
 import Tickets from './pages/Tickets';
 import Sales from './pages/Sales';
+import Recruitment from './pages/Recruitment';
 
 /** Shown when the build has no Supabase credentials — otherwise every card
  *  would just render the same connection error. */
@@ -41,7 +42,7 @@ export default function App() {
   return (
     <RefreshProvider>
       <ToastProvider>
-        <BrowserRouter>
+        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <AppShell>
             <Routes>
               <Route path="/" element={<Overview />} />
@@ -49,6 +50,7 @@ export default function App() {
               <Route path="/dept/:team" element={<DeptDetail />} />
               <Route path="/tickets" element={<Tickets />} />
               <Route path="/sales" element={<Sales />} />
+              <Route path="/recruitment" element={<Recruitment />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </AppShell>

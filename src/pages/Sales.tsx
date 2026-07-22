@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react';
 import { select } from '../lib/supabase';
-import type { FactCall, SalesPersonTotals, SalesSummary } from '../types/db';
+import type { SalesPersonTotals, SalesRepMonthly, SalesSummary } from '../types/db';
 import { monthsOf, salesByMonth } from '../lib/metrics';
 import {
   NOUN,
   arCount,
   fmtDuration,
+  fmtHours,
   fmtInt,
   fmtMoney,
   fmtMoneyCompact,
@@ -32,13 +33,6 @@ import { IconPhone } from '../components/Icons';
 
 type Tab = 'month' | 'all';
 
-/** First day of the month after `month` (`YYYY-MM-01`). */
-function nextMonth(month: string): string {
-  const [y, m] = month.split('-').map(Number);
-  const d = new Date(y, m, 1);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
-}
-
 export default function Sales() {
   const { tick } = useRefresh();
   const [tab, setTab] = useState<Tab>('month');
@@ -55,19 +49,19 @@ export default function Sales() {
     [tick],
   );
 
-  const months = useMemo(() => (sales.data ? monthsOf(sales.data) : []), [sales.data]);
+  const crm = useAsync(
+    () => select<SalesRepMonthly>('sales_rep_monthly', { order: 'month.desc,user_name.asc', limit: 10000 }),
+    [tick],
+  );
+
+  const months = useMemo(() => {
+    const financialMonths = sales.data ? monthsOf(sales.data) : [];
+    const crmMonths = (crm.data ?? []).map((row) => row.month);
+    return [...new Set([...financialMonths, ...crmMonths])].sort((a, b) => b.localeCompare(a));
+  }, [sales.data, crm.data]);
   const selected = month ?? (months.includes(monthKey()) ? monthKey() : months[0]) ?? null;
 
-  const calls = useAsync(async () => {
-    if (!selected) return [] as FactCall[];
-    return select<FactCall>('fact_call', {
-      select: 'call_id,extension,user_id,direction,ring_sec,talk_sec,disposition,started_at',
-      filter: { and: `(started_at.gte.${selected},started_at.lt.${nextMonth(selected)})` },
-      limit: 5000,
-    });
-  }, [selected, tick]);
-
-  useErrorToast(sales.error, allTime.error);
+  useErrorToast(sales.error, allTime.error, crm.error);
 
   const rows = useMemo(
     () =>
@@ -84,6 +78,42 @@ export default function Sales() {
   const quotesTotal = rows.reduce((s, r) => s + (r.quotations_count ?? 0), 0);
   const trend = useMemo(() => (sales.data ? salesByMonth(sales.data) : []), [sales.data]);
 
+  const crmRows = useMemo(
+    () => (crm.data ?? [])
+      .filter((row) => row.month === selected)
+      .sort((a, b) => b.won_leads - a.won_leads || b.open_leads - a.open_leads),
+    [crm.data, selected],
+  );
+
+  const crmTotals = useMemo(() => {
+    const total = {
+      open: 0, newLeads: 0, contacted: 0, uncontacted: 0, won: 0, lost: 0,
+      calls: 0, answered: 0, talk: 0, firstCallWeighted: 0, firstCallN: 0,
+    };
+    for (const row of crmRows) {
+      total.open += row.open_leads;
+      total.newLeads += row.new_leads;
+      total.contacted += row.contacted_leads;
+      total.uncontacted += row.uncontacted_leads;
+      total.won += row.won_leads;
+      total.lost += row.lost_leads;
+      total.calls += row.outbound_calls;
+      total.answered += row.answered_calls;
+      total.talk += row.talk_sec;
+      if (row.avg_first_call_minutes != null && row.contacted_leads > 0) {
+        total.firstCallWeighted += row.avg_first_call_minutes * row.contacted_leads;
+        total.firstCallN += row.contacted_leads;
+      }
+    }
+    return {
+      ...total,
+      conversion: total.won + total.lost ? (total.won / (total.won + total.lost)) * 100 : null,
+      contact: total.newLeads ? (total.contacted / total.newLeads) * 100 : null,
+      answer: total.calls ? (total.answered / total.calls) * 100 : null,
+      firstCallMinutes: total.firstCallN ? total.firstCallWeighted / total.firstCallN : null,
+    };
+  }, [crmRows]);
+
   // One target per team — the view repeats it on every person's row.
   const teams = useMemo(() => {
     const map = new Map<string, { team: string; achieved: number; target: number | null; people: number }>();
@@ -98,14 +128,6 @@ export default function Sales() {
     return [...map.values()].sort((a, b) => b.achieved - a.achieved);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows, untaxed]);
-
-  const callStats = useMemo(() => {
-    const list = calls.data ?? [];
-    if (!list.length) return null;
-    const answered = list.filter((c) => (c.talk_sec ?? 0) > 0).length;
-    const talk = list.reduce((s, c) => s + (c.talk_sec ?? 0), 0);
-    return { total: list.length, answered, talk, pct: (answered / list.length) * 100 };
-  }, [calls.data]);
 
   return (
     <div className="space-y-5">
@@ -183,6 +205,70 @@ export default function Sales() {
         </Card>
       ) : tab === 'month' ? (
         <>
+          {/* ── CRM ownership + conversion ───────────────────────── */}
+          {crm.loading ? (
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+              {Array.from({ length: 8 }).map((_, i) => <SkeletonCard key={i} lines={0} />)}
+            </div>
+          ) : crm.error ? (
+            <Card><ErrorState error={crm.error} onRetry={crm.reload} /></Card>
+          ) : (
+            <div className={cx('grid grid-cols-2 gap-3 lg:grid-cols-4', crm.refreshing && 'is-refetching')}>
+              <StatTile label="ليدز مفتوحة حاليًا" value={fmtInt(crmTotals.open)} tone="brand" />
+              <StatTile label="ليدز جديدة" value={fmtInt(crmTotals.newLeads)} />
+              <StatTile label="لم يتم الاتصال" value={fmtInt(crmTotals.uncontacted)} tone={crmTotals.uncontacted ? 'bad' : 'ok'} />
+              <StatTile label="متوسط أول مكالمة" value={crmTotals.firstCallMinutes == null ? '—' : fmtHours(crmTotals.firstCallMinutes / 60)} />
+              <StatTile label="Closed Won" value={fmtInt(crmTotals.won)} tone="ok" />
+              <StatTile label="Closed Lost" value={fmtInt(crmTotals.lost)} tone={crmTotals.lost ? 'warn' : 'neutral'} />
+              <StatTile label="نسبة التحويل" value={fmtPct(crmTotals.conversion)} tone={crmTotals.conversion == null ? 'neutral' : crmTotals.conversion >= 30 ? 'ok' : 'warn'} />
+              <StatTile label="مكالمات صادرة" value={fmtInt(crmTotals.calls)} icon={<IconPhone className="h-4 w-4" />} />
+            </div>
+          )}
+
+          <Card as="section">
+            <SectionTitle title="أداء موظفي السيلز" subtitle={selected ? `${fmtMonth(selected)} · CRM + Yeastar` : undefined} />
+            {crm.loading ? (
+              <div className="space-y-2">{Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}</div>
+            ) : crmRows.length === 0 ? (
+              <EmptyState title="لسه مفيش CRM metrics للشهر ده" hint="شغّل Workflow مزامنة CRM بعد تطبيق operational-schema-v2.sql." />
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[980px] text-sm">
+                  <thead>
+                    <tr className="border-b border-surface-line text-xs text-ink-muted">
+                      <th className="px-2 py-2 text-start font-medium">الموظف</th>
+                      <th className="px-2 py-2 text-start font-medium">معاه الآن</th>
+                      <th className="px-2 py-2 text-start font-medium">جديدة</th>
+                      <th className="px-2 py-2 text-start font-medium">بدون اتصال</th>
+                      <th className="px-2 py-2 text-start font-medium">أول مكالمة</th>
+                      <th className="px-2 py-2 text-start font-medium">المكالمات</th>
+                      <th className="px-2 py-2 text-start font-medium">رد</th>
+                      <th className="px-2 py-2 text-start font-medium">Won</th>
+                      <th className="px-2 py-2 text-start font-medium">Lost</th>
+                      <th className="px-2 py-2 text-start font-medium">التحويل</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {crmRows.map((row) => (
+                      <tr key={row.user_id} className={cx('border-b border-surface-line/70 last:border-0', row.uncontacted_leads > 0 && 'bg-status-warnBg/35')}>
+                        <td className="px-2 py-2"><p className="font-semibold text-navy">{row.user_name}</p><p className="text-[11px] text-ink-faint">{row.team_name ?? 'بدون فريق'}</p></td>
+                        <td className="px-2 py-2 font-semibold text-navy">{fmtInt(row.open_leads)}</td>
+                        <td className="px-2 py-2 text-ink-muted">{fmtInt(row.new_leads)}</td>
+                        <td className={cx('px-2 py-2 font-semibold', row.uncontacted_leads ? 'text-status-bad' : 'text-status-ok')}>{fmtInt(row.uncontacted_leads)}</td>
+                        <td className="px-2 py-2 text-ink-muted">{row.avg_first_call_minutes == null ? '—' : fmtHours(row.avg_first_call_minutes / 60)}</td>
+                        <td className="px-2 py-2 text-ink-muted">{fmtInt(row.outbound_calls)}</td>
+                        <td className="px-2 py-2 text-ink-muted">{fmtPct(row.answer_pct, 0)}</td>
+                        <td className="px-2 py-2 font-semibold text-status-ok">{fmtInt(row.won_leads)}</td>
+                        <td className="px-2 py-2 font-semibold text-[#B45309]">{fmtInt(row.lost_leads)}</td>
+                        <td className="px-2 py-2 font-semibold text-navy">{fmtPct(row.conversion_pct)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
+
           {/* ── Month KPIs ─────────────────────────────────────────── */}
           {sales.loading ? (
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -283,23 +369,23 @@ export default function Sales() {
               title="المكالمات"
               subtitle={selected ? `${fmtMonth(selected)} · من Yeastar` : undefined}
             />
-            {calls.loading ? (
+            {crm.loading ? (
               <div className="grid grid-cols-3 gap-3">
                 {Array.from({ length: 3 }).map((_, i) => (
                   <Skeleton key={i} className="h-16 w-full" />
                 ))}
               </div>
-            ) : calls.error || !callStats ? (
+            ) : crmRows.length === 0 ? (
               <EmptyState
                 title="لسه مفيش بيانات مكالمات"
-                hint="جدول fact_call فاضي للشهر ده — هيشتغل أوتوماتيك أول ما Yeastar يتربط."
+                hint="المكالمة لا تظهر هنا إلا بعد ربط Extension بموظف Odoo في map_extension."
               />
             ) : (
               <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-                <StatTile label="عدد المكالمات" value={fmtInt(callStats.total)} icon={<IconPhone className="h-4 w-4" />} />
-                <StatTile label="اتردّ عليها" value={fmtInt(callStats.answered)} tone="ok" />
-                <StatTile label="نسبة الرد" value={fmtPct(callStats.pct, 0)} tone={callStats.pct >= 80 ? 'ok' : 'warn'} />
-                <StatTile label="إجمالي وقت الكلام" value={fmtDuration(callStats.talk)} />
+                <StatTile label="عدد المكالمات" value={fmtInt(crmTotals.calls)} icon={<IconPhone className="h-4 w-4" />} />
+                <StatTile label="اتردّ عليها" value={fmtInt(crmTotals.answered)} tone="ok" />
+                <StatTile label="نسبة الرد" value={fmtPct(crmTotals.answer, 0)} tone={crmTotals.answer != null && crmTotals.answer >= 80 ? 'ok' : 'warn'} />
+                <StatTile label="إجمالي وقت الكلام" value={fmtDuration(crmTotals.talk)} />
               </div>
             )}
           </Card>

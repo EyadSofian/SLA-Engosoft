@@ -82,6 +82,29 @@ export function fmtDuration(sec: number | null | undefined): string {
   return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
 }
 
+/** Human-readable SLA countdown. Negative values are rendered as overdue. */
+export function fmtCountdown(sec: number | null | undefined): string {
+  if (sec == null || Number.isNaN(sec)) return '—';
+  const overdue = sec < 0;
+  const total = Math.abs(sec);
+  const value = total < 3600
+    ? `${Math.max(1, Math.round(total / 60))} دقيقة`
+    : total < 172800
+      ? fmtHours(total / 3600)
+      : `${oneDp.format(total / 86400)} يوم`;
+  return overdue ? `متأخر ${value}` : `فاضل ${value}`;
+}
+
+/** Age since an ISO timestamp, recalculated live instead of trusting stale ETL. */
+export function fmtSince(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const ms = Date.now() - new Date(iso).getTime();
+  if (!Number.isFinite(ms)) return '—';
+  if (ms < 3600000) return `من ${Math.max(1, Math.round(ms / 60000))} دقيقة`;
+  if (ms < 172800000) return `من ${fmtHours(ms / 3600000)}`;
+  return `من ${oneDp.format(ms / 86400000)} يوم`;
+}
+
 /** `4.3 / 5` */
 export function fmtCsat(v: number | null | undefined): string {
   if (v == null || Number.isNaN(v)) return '—';

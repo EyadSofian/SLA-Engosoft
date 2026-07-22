@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { select } from '../lib/supabase';
 import type { FactTicket } from '../types/db';
-import { NOUN, arCount, fmtCsat, fmtHours, fmtInt, fmtPct, fmtShortDate } from '../lib/format';
+import { NOUN, arCount, fmtCountdown, fmtCsat, fmtHours, fmtInt, fmtPct, fmtShortDate, fmtSince } from '../lib/format';
 import { useAsync } from '../hooks/useAsync';
 import { useRefresh } from '../hooks/useRefresh';
 import { useErrorToast } from '../hooks/useErrorToast';
@@ -21,11 +21,11 @@ import {
 import { IconInbox, IconSearch, IconUrgent } from '../components/Icons';
 
 const COLS =
-  'ticket_id,ticket_ref,subject,team_name,agent_name,stage_name,is_open,is_closed,is_unassigned,is_urgent,priority,partner_name,csat,create_date,close_date,resolution_hours,aging_days,sla_failed';
+  'ticket_id,ticket_ref,subject,team_name,agent_user_id,agent_name,stage_name,is_open,is_closed,is_unassigned,is_urgent,priority,partner_name,csat,create_date,close_date,resolution_hours,aging_days,sla_failed,assign_date,first_response_hours,sla_count,sla_failed_count,sla_reached_count,sla_deadline,sla_state,sla_remaining_seconds,sla_exceeded_hours,synced_at';
 
 const PAGE = 50;
 
-type Status = 'all' | 'open' | 'closed' | 'unassigned' | 'urgent' | 'failed';
+type Status = 'all' | 'open' | 'closed' | 'unassigned' | 'urgent' | 'at_risk' | 'failed' | 'no_sla';
 
 const STATUSES: Array<{ key: Status; label: string }> = [
   { key: 'all', label: 'الكل' },
@@ -33,8 +33,16 @@ const STATUSES: Array<{ key: Status; label: string }> = [
   { key: 'closed', label: 'مقفول' },
   { key: 'unassigned', label: 'غير مُسند' },
   { key: 'urgent', label: 'عاجل' },
+  { key: 'at_risk', label: 'SLA قرب يخلص' },
   { key: 'failed', label: 'SLA متأخر' },
+  { key: 'no_sla', label: 'بدون SLA' },
 ];
+
+const isAtRisk = (t: FactTicket) =>
+  t.sla_state === 'ongoing'
+  && t.sla_remaining_seconds != null
+  && t.sla_remaining_seconds >= 0
+  && t.sla_remaining_seconds <= 4 * 3600;
 
 function priorityLabel(p: FactTicket['priority']): string {
   const map: Record<string, string> = { '0': 'عادي', '1': 'متوسط', '2': 'عالي', '3': 'عاجل' };
@@ -59,7 +67,7 @@ export default function Tickets() {
   const [shown, setShown] = useState(PAGE);
 
   const tickets = useAsync(
-    () => select<FactTicket>('fact_ticket', { select: COLS, order: 'create_date.desc', limit: 20000 }),
+    () => select<FactTicket>('ticket_operational', { select: COLS, order: 'create_date.desc', limit: 20000 }),
     [tick],
   );
   useErrorToast(tickets.error);
@@ -81,7 +89,9 @@ export default function Tickets() {
       if (status === 'closed' && !t.is_closed) return false;
       if (status === 'unassigned' && !t.is_unassigned) return false;
       if (status === 'urgent' && !t.is_urgent) return false;
-      if (status === 'failed' && !t.sla_failed) return false;
+      if (status === 'at_risk' && !isAtRisk(t)) return false;
+      if (status === 'failed' && t.sla_state !== 'failed') return false;
+      if (status === 'no_sla' && t.sla_state !== 'no_sla') return false;
 
       if (fromTs || toTs) {
         const ts = t.create_date ? new Date(t.create_date).getTime() : null;
@@ -108,6 +118,8 @@ export default function Tickets() {
       unassigned: 0,
       urgent: 0,
       failed: 0,
+      atRisk: 0,
+      noSla: 0,
       resSum: 0,
       resN: 0,
       csatSum: 0,
@@ -120,7 +132,9 @@ export default function Tickets() {
       if (t.is_closed) s.closed += 1;
       if (t.is_unassigned) s.unassigned += 1;
       if (t.is_urgent) s.urgent += 1;
-      if (t.sla_failed) s.failed += 1;
+      if (t.sla_state === 'failed') s.failed += 1;
+      if (isAtRisk(t)) s.atRisk += 1;
+      if (t.sla_state === 'no_sla') s.noSla += 1;
       if (t.resolution_hours != null) {
         s.resSum += t.resolution_hours;
         s.resN += 1;
@@ -129,9 +143,9 @@ export default function Tickets() {
         s.csatSum += t.csat;
         s.csatN += 1;
       }
-      if (t.sla_failed != null) {
+      if (t.sla_state === 'reached' || t.sla_state === 'failed') {
         s.slaN += 1;
-        if (!t.sla_failed) s.slaOk += 1;
+        if (t.sla_state === 'reached') s.slaOk += 1;
       }
     }
     return {
@@ -154,7 +168,7 @@ export default function Tickets() {
   }
 
   function exportCsv() {
-    const head = ['المرجع', 'الموضوع', 'القسم', 'الموظف', 'المرحلة', 'الأولوية', 'العميل', 'تاريخ الفتح', 'تاريخ القفل', 'ساعات الحل', 'العُمر بالأيام', 'الحالة', 'SLA'];
+    const head = ['المرجع', 'الموضوع', 'القسم', 'الموظف المسؤول', 'المرحلة', 'الأولوية', 'العميل', 'تاريخ الفتح', 'مفتوحة من', 'تاريخ القفل', 'ساعات الحل', 'الحالة', 'حالة SLA', 'موعد SLA', 'الوقت المتبقي بالثواني'];
     const body = rows.map((t) => [
       t.ticket_ref ?? t.ticket_id,
       t.subject,
@@ -164,11 +178,13 @@ export default function Tickets() {
       priorityLabel(t.priority),
       t.partner_name,
       t.create_date,
+      fmtSince(t.create_date),
       t.close_date,
       t.resolution_hours,
-      t.aging_days,
       t.is_open ? 'مفتوح' : 'مقفول',
-      t.sla_failed ? 'متأخر' : t.sla_failed === false ? 'ملتزم' : '—',
+      t.sla_state === 'failed' ? 'متأخر' : t.sla_state === 'reached' ? 'تم في الموعد' : t.sla_state === 'ongoing' ? 'جاري' : 'بدون SLA',
+      t.sla_deadline,
+      t.sla_remaining_seconds,
     ]);
 
     const csv = [head, ...body].map((r) => r.map(csvCell).join(',')).join('\n');
@@ -222,8 +238,8 @@ export default function Tickets() {
 
       {/* ── Summary of the filtered set ─────────────────────────────── */}
       {tickets.loading ? (
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          {Array.from({ length: 8 }).map((_, i) => (
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+          {Array.from({ length: 10 }).map((_, i) => (
             <SkeletonCard key={i} lines={0} />
           ))}
         </div>
@@ -232,7 +248,7 @@ export default function Tickets() {
           <ErrorState error={tickets.error} onRetry={tickets.reload} />
         </Card>
       ) : (
-        <div className={cx('grid grid-cols-2 gap-3 lg:grid-cols-4', tickets.refreshing && 'is-refetching')}>
+        <div className={cx('grid grid-cols-2 gap-3 lg:grid-cols-5', tickets.refreshing && 'is-refetching')}>
           <StatTile label="الإجمالي" value={fmtInt(summary.total)} icon={<IconInbox className="h-4 w-4" />} />
           <StatTile label="مفتوح" value={fmtInt(summary.open)} tone="brand" />
           <StatTile label="مقفول" value={fmtInt(summary.closed)} tone="ok" />
@@ -248,6 +264,8 @@ export default function Tickets() {
             tone={summary.urgent ? 'warn' : 'neutral'}
           />
           <StatTile label="SLA متأخر" value={fmtInt(summary.failed)} tone={summary.failed ? 'bad' : 'neutral'} />
+          <StatTile label="SLA قرب يخلص" value={fmtInt(summary.atRisk)} tone={summary.atRisk ? 'warn' : 'neutral'} />
+          <StatTile label="بدون SLA" value={fmtInt(summary.noSla)} tone={summary.noSla ? 'warn' : 'neutral'} />
           <StatTile
             label="التزام SLA"
             value={fmtPct(summary.slaPct)}
@@ -368,6 +386,8 @@ export default function Tickets() {
               <Skeleton key={i} className="h-10 w-full" />
             ))}
           </div>
+        ) : tickets.error ? (
+          <EmptyState title="بيانات التذاكر مش جاهزة" hint="طبّق operational-schema-v2.sql ثم جرّب تاني." />
         ) : rows.length === 0 ? (
           <EmptyState
             title={dirty ? 'مفيش تذاكر بالفلتر ده' : 'مفيش تذاكر'}
@@ -385,7 +405,8 @@ export default function Tickets() {
                     <th scope="col" className="px-2 py-2 text-start font-medium">الموظف</th>
                     <th scope="col" className="px-2 py-2 text-start font-medium">المرحلة</th>
                     <th scope="col" className="px-2 py-2 text-start font-medium">الأولوية</th>
-                    <th scope="col" className="px-2 py-2 text-start font-medium">اتفتحت</th>
+                    <th scope="col" className="px-2 py-2 text-start font-medium">مفتوحة من</th>
+                    <th scope="col" className="px-2 py-2 text-start font-medium">SLA</th>
                     <th scope="col" className="px-2 py-2 text-start font-medium">الحالة</th>
                   </tr>
                 </thead>
@@ -395,8 +416,8 @@ export default function Tickets() {
                       key={t.ticket_id}
                       className={cx(
                         'border-b border-surface-line/70 last:border-0',
-                        t.sla_failed && 'bg-status-badBg/50',
-                        !t.sla_failed && t.is_urgent && 'bg-status-warnBg/50',
+                        t.sla_state === 'failed' && 'bg-status-badBg/50',
+                        t.sla_state !== 'failed' && (isAtRisk(t) || t.is_urgent) && 'bg-status-warnBg/50',
                       )}
                     >
                       <td className="whitespace-nowrap px-2 py-2 font-semibold text-navy">
@@ -423,19 +444,26 @@ export default function Tickets() {
                       <td className="whitespace-nowrap px-2 py-2 text-ink-muted">{t.stage_name ?? '—'}</td>
                       <td className="whitespace-nowrap px-2 py-2 text-ink-muted">{priorityLabel(t.priority)}</td>
                       <td className="whitespace-nowrap px-2 py-2 text-ink-muted">
-                        {fmtShortDate(t.create_date)}
-                        {t.is_open && t.aging_days != null && (
-                          <span className="ms-1 text-[11px] text-ink-faint">
-                            ({arCount(t.aging_days, NOUN.day)})
-                          </span>
+                        <span title={fmtShortDate(t.create_date)}>{t.is_open ? fmtSince(t.create_date) : fmtShortDate(t.create_date)}</span>
+                      </td>
+                      <td className="whitespace-nowrap px-2 py-2">
+                        {t.sla_state === 'failed' ? (
+                          <span className="font-semibold text-status-bad">{fmtCountdown(t.sla_remaining_seconds)}</span>
+                        ) : t.sla_state === 'ongoing' ? (
+                          <span className={cx('font-semibold', isAtRisk(t) ? 'text-[#B45309]' : 'text-brand-600')}>{fmtCountdown(t.sla_remaining_seconds)}</span>
+                        ) : t.sla_state === 'reached' ? (
+                          <span className="font-semibold text-status-ok">تم في الموعد</span>
+                        ) : (
+                          <span className="text-ink-faint">بدون SLA</span>
                         )}
                       </td>
                       <td className="whitespace-nowrap px-2 py-2">
                         <div className="flex gap-1">
-                          {t.sla_failed && <Badge tone="bad">SLA متأخر</Badge>}
+                          {t.sla_state === 'failed' && <Badge tone="bad">SLA متأخر</Badge>}
+                          {isAtRisk(t) && <Badge tone="warn">قرب يخلص</Badge>}
                           {t.is_urgent && <Badge tone="warn">عاجل</Badge>}
                           {!t.is_open && <Badge tone="ok">مقفولة</Badge>}
-                          {t.is_open && !t.sla_failed && !t.is_urgent && <Badge tone="neutral">مفتوحة</Badge>}
+                          {t.is_open && t.sla_state !== 'failed' && !isAtRisk(t) && !t.is_urgent && <Badge tone="neutral">مفتوحة</Badge>}
                         </div>
                       </td>
                     </tr>

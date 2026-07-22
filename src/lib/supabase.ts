@@ -84,10 +84,13 @@ export interface QueryOptions {
   filter?: Record<string, string | number | boolean | undefined>;
   /** e.g. `'achieved_total.desc'` */
   order?: string;
+  /** Maximum rows returned across all PostgREST pages. */
   limit?: number;
+  /** Internal/advanced: starting offset for a single page. */
+  offset?: number;
 }
 
-function buildQuery({ select = '*', filter, order, limit }: QueryOptions = {}): string {
+function buildQuery({ select = '*', filter, order, limit, offset }: QueryOptions = {}): string {
   const params = new URLSearchParams();
   params.set('select', select);
 
@@ -96,12 +99,32 @@ function buildQuery({ select = '*', filter, order, limit }: QueryOptions = {}): 
   }
   if (order) params.set('order', order);
   if (limit != null) params.set('limit', String(limit));
+  if (offset != null) params.set('offset', String(offset));
 
   return params.toString();
 }
 
 /** Fetch rows from a table or view. */
 export async function select<T>(source: string, options?: QueryOptions): Promise<T[]> {
+  const requested = options?.limit;
+
+  // Supabase projects commonly cap each REST response at 1,000 rows. Asking
+  // for 20,000 in one request silently returned only the first page, which is
+  // why the dashboard missed most tickets. Page explicitly when needed.
+  if (requested != null && requested > 1000) {
+    const rows: T[] = [];
+    while (rows.length < requested) {
+      const pageSize = Math.min(1000, requested - rows.length);
+      const res = await request(
+        `${source}?${buildQuery({ ...options, limit: pageSize, offset: rows.length })}`,
+      );
+      const page = (await res.json()) as T[];
+      rows.push(...page);
+      if (page.length < pageSize) break;
+    }
+    return rows;
+  }
+
   const res = await request(`${source}?${buildQuery(options)}`);
   return (await res.json()) as T[];
 }

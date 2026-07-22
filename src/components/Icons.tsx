@@ -114,6 +114,14 @@ export const IconUser = (p: IconProps) => (
   </Svg>
 );
 
+export const IconRecruitment = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="3" y="7" width="18" height="13" rx="2" />
+    <path d="M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2M3 12h18" />
+    <path d="M10 12v2h4v-2" />
+  </Svg>
+);
+
 export const IconUserOff = (p: IconProps) => (
   <Svg {...p}>
     <circle cx="12" cy="8" r="3.75" />

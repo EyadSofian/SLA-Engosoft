@@ -1,0 +1,282 @@
+{
+  "name": "Engosoft — PBX Extension Map Sync [v1]",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 6
+            }
+          ]
+        }
+      },
+      "id": "schedule-061",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -900,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "cfg-062",
+              "name": "SUPABASE_URL",
+              "value": "https://jrenyjmbbizborhbwptz.supabase.co",
+              "type": "string"
+            },
+            {
+              "id": "cfg-063",
+              "name": "SUPABASE_KEY",
+              "value": "REPLACE_WITH_SUPABASE_SECRET_IN_N8N_ONLY",
+              "type": "string"
+            },
+            {
+              "id": "cfg-064",
+              "name": "FROM_DATE",
+              "value": "={{ new Date(Date.now() - 90*60000).toISOString().slice(0,19).replace('T',' ') }}",
+              "type": "string"
+            },
+            {
+              "id": "cfg-066",
+              "name": "YEASTAR_USERNAME",
+              "value": "REPLACE_WITH_YEASTAR_USERNAME_IN_N8N_ONLY",
+              "type": "string"
+            },
+            {
+              "id": "cfg-067",
+              "name": "YEASTAR_PASSWORD",
+              "value": "REPLACE_WITH_YEASTAR_PASSWORD_IN_N8N_ONLY",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "config-065",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -680,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "custom",
+        "customResource": "crm.team.member",
+        "operation": "getAll",
+        "returnAll": true,
+        "options": {}
+      },
+      "id": "odoo-068",
+      "name": "Get Team Members",
+      "type": "n8n-nodes-base.odoo",
+      "typeVersion": 1,
+      "position": [
+        -460,
+        120
+      ],
+      "credentials": {
+        "odooApi": {
+          "id": "a2EBSJpQlmB0wr29",
+          "name": "Odoo Live"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://engosoft-pbx.ras.yeastar.com/openapi/v1.0/get_token",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "OpenAPI"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { username: $('Config').first().json.YEASTAR_USERNAME, password: $('Config').first().json.YEASTAR_PASSWORD } }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "http-069",
+      "name": "Get Token",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -240,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://engosoft-pbx.ras.yeastar.com/openapi/v1.0/extension/list?access_token={{ encodeURIComponent($('Get Token').first().json.access_token) }}&page_size=1000",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "OpenAPI"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "http-070",
+      "name": "Get Extensions",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -20,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst members = $('Get Team Members').all().map(i => i.json).filter(r => r && r.id != null);\nconst extensionResponse = $('Get Extensions').first().json;\nif (Number(extensionResponse.errcode) !== 0) throw new Error('Yeastar extension/list failed: ' + extensionResponse.errmsg);\nconst byEmail = new Map();\nfor (const m of members) {\n  const email = String(m.email || '').trim().toLowerCase();\n  const user = Array.isArray(m.user_id) ? m.user_id : [];\n  if (email && user[0]) byEmail.set(email, { user_id: user[0], user_name: user[1] || String(user[0]) });\n}\nconst mappings = [];\nfor (const ext of extensionResponse.data || []) {\n  const email = String(ext.email_addr || '').trim().toLowerCase();\n  const member = byEmail.get(email);\n  if (!member || !ext.number) continue;\n  mappings.push({ extension: String(ext.number), user_id: member.user_id, user_name: member.user_name });\n}\nreturn [{ json: { mappings, matched: mappings.length, extensions: (extensionResponse.data || []).length } }];"
+      },
+      "id": "code-071",
+      "name": "Build Extension Map",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        200,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.SUPABASE_URL }}/rest/v1/map_extension",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $('Config').first().json.SUPABASE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Config').first().json.SUPABASE_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "resolution=merge-duplicates,return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify($json.mappings) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "http-072",
+      "name": "Upsert Extension Map",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        420,
+        120
+      ]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Get Team Members",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Team Members": {
+      "main": [
+        [
+          {
+            "node": "Get Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Token": {
+      "main": [
+        [
+          {
+            "node": "Get Extensions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Extensions": {
+      "main": [
+        [
+          {
+            "node": "Build Extension Map",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Extension Map": {
+      "main": [
+        [
+          {
+            "node": "Upsert Extension Map",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "tags": []
+}
