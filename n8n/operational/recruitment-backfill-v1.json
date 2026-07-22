@@ -3,7 +3,7 @@
   "nodes": [
     {
       "parameters": {},
-      "id": "manual-053",
+      "id": "manual-055",
       "name": "Manual Trigger",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
@@ -17,19 +17,19 @@
         "assignments": {
           "assignments": [
             {
-              "id": "cfg-054",
+              "id": "cfg-056",
               "name": "SUPABASE_URL",
               "value": "https://jrenyjmbbizborhbwptz.supabase.co",
               "type": "string"
             },
             {
-              "id": "cfg-055",
+              "id": "cfg-057",
               "name": "SUPABASE_KEY",
               "value": "REPLACE_WITH_SUPABASE_SECRET_IN_N8N_ONLY",
               "type": "string"
             },
             {
-              "id": "cfg-056",
+              "id": "cfg-058",
               "name": "FROM_DATE",
               "value": "2026-01-01 00:00:00",
               "type": "string"
@@ -38,7 +38,7 @@
         },
         "options": {}
       },
-      "id": "config-057",
+      "id": "config-059",
       "name": "Config",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
@@ -55,7 +55,7 @@
         "returnAll": true,
         "options": {}
       },
-      "id": "odoo-058",
+      "id": "odoo-060",
       "name": "Get Applicants",
       "type": "n8n-nodes-base.odoo",
       "typeVersion": 1,
@@ -68,13 +68,14 @@
           "id": "a2EBSJpQlmB0wr29",
           "name": "Odoo Live"
         }
-      }
+      },
+      "executeOnce": true
     },
     {
       "parameters": {
         "jsCode": "\nconst iso = (s) => {\n  if (!s) return null;\n  const d = new Date(String(s).replace(' ', 'T') + (String(s).includes('T') ? '' : 'Z'));\n  return Number.isNaN(d.getTime()) ? null : d.toISOString();\n};\nconst ms = (s) => { const v = iso(s); return v ? new Date(v).getTime() : null; };\nconst rel = (v) => Array.isArray(v) ? { id: v[0] ?? null, name: v[1] ?? null } : { id: null, name: null };\nconst rows = (name) => $(name).all().map(i => i.json).filter(r => r && r.id != null);\nconst now = Date.now();\n\nconst applicants = rows('Get Applicants').map(a => {\n  const status = a.application_status || (a.active === false ? 'refused' : 'ongoing');\n  const recruiter = rel(a.user_id); const job = rel(a.job_id); const stage = rel(a.stage_id);\n  return {\n    applicant_id: a.id, applicant_name: a.partner_name || a.name || null,\n    job_id: job.id, job_name: job.name, department_name: rel(a.department_id).name,\n    stage_id: stage.id, stage_name: stage.name,\n    recruiter_user_id: recruiter.id, recruiter_name: recruiter.name,\n    application_status: status, priority: a.priority == null ? null : String(a.priority),\n    applied_at: iso(a.create_date), assigned_at: iso(a.date_open),\n    last_stage_at: iso(a.date_last_stage_update),\n    hired_at: status === 'hired' ? iso(a.date_closed) : null,\n    refused_at: status === 'refused' ? iso(a.date_closed || a.write_date) : null,\n    refuse_reason: rel(a.refuse_reason_id).name,\n    next_activity_deadline: a.activity_date_deadline || null,\n    next_interview_at: iso(a.meeting_display_date), active: a.active !== false,\n    write_date: iso(a.write_date), synced_at: new Date().toISOString()\n  };\n});\nreturn [{ json: { applicants } }];"
       },
-      "id": "code-059",
+      "id": "code-061",
       "name": "Build Recruitment",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -116,7 +117,7 @@
           "timeout": 120000
         }
       },
-      "id": "http-060",
+      "id": "http-062",
       "name": "Upsert Applicants",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,

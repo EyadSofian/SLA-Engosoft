@@ -3,7 +3,7 @@
   "nodes": [
     {
       "parameters": {},
-      "id": "manual-073",
+      "id": "manual-075",
       "name": "Manual Trigger",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
@@ -17,37 +17,37 @@
         "assignments": {
           "assignments": [
             {
-              "id": "cfg-074",
+              "id": "cfg-076",
               "name": "SUPABASE_URL",
               "value": "https://jrenyjmbbizborhbwptz.supabase.co",
               "type": "string"
             },
             {
-              "id": "cfg-075",
+              "id": "cfg-077",
               "name": "SUPABASE_KEY",
               "value": "REPLACE_WITH_SUPABASE_SECRET_IN_N8N_ONLY",
               "type": "string"
             },
             {
-              "id": "cfg-076",
+              "id": "cfg-078",
               "name": "FROM_DATE",
               "value": "2026-01-01 00:00:00",
               "type": "string"
             },
             {
-              "id": "cfg-078",
+              "id": "cfg-080",
               "name": "YEASTAR_USERNAME",
               "value": "REPLACE_WITH_YEASTAR_USERNAME_IN_N8N_ONLY",
               "type": "string"
             },
             {
-              "id": "cfg-079",
+              "id": "cfg-081",
               "name": "YEASTAR_PASSWORD",
               "value": "REPLACE_WITH_YEASTAR_PASSWORD_IN_N8N_ONLY",
               "type": "string"
             },
             {
-              "id": "cfg-080",
+              "id": "cfg-082",
               "name": "PBX_START_TIME",
               "value": "01/01/2026 12:00:00 AM",
               "type": "string"
@@ -56,7 +56,7 @@
         },
         "options": {}
       },
-      "id": "config-077",
+      "id": "config-079",
       "name": "Config",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
@@ -89,14 +89,15 @@
           "timeout": 30000
         }
       },
-      "id": "http-081",
+      "id": "http-083",
       "name": "Get Token",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
         -460,
         120
-      ]
+      ],
+      "executeOnce": true
     },
     {
       "parameters": {
@@ -118,7 +119,7 @@
           "timeout": 30000
         }
       },
-      "id": "http-082",
+      "id": "http-084",
       "name": "Get Extension Map",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -131,7 +132,7 @@
       "parameters": {
         "jsCode": "return $input.all().map(i => ({ json: { extension: String(i.json.extension), user_id: i.json.user_id, user_name: i.json.user_name } }));"
       },
-      "id": "code-083",
+      "id": "code-085",
       "name": "Make Extension Requests",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -156,20 +157,24 @@
           "timeout": 120000
         }
       },
-      "id": "http-084",
+      "id": "http-086",
       "name": "Get CDR Per Extension",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
         200,
         120
-      ]
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput"
     },
     {
       "parameters": {
-        "jsCode": "\nconst responses = $input.all().map(i => i.json);\nconst requests = $('Make Extension Requests').all().map(i => i.json);\nconst digits = (v) => { const d = String(v || '').replace(/\\D/g, ''); return d ? d.slice(-10) : null; };\nfunction cairoIso(value) {\n  if (!value) return null;\n  const s = String(value).trim();\n  const m = s.match(/^(\\d{2})\\/(\\d{2})\\/(\\d{4})\\s+(\\d{1,2}):(\\d{2}):(\\d{2})\\s*(AM|PM)?$/i);\n  if (!m) return null;\n  let hour = Number(m[4]); const marker = (m[7] || '').toUpperCase();\n  if (marker === 'PM' && hour < 12) hour += 12;\n  if (marker === 'AM' && hour === 12) hour = 0;\n  const guess = Date.UTC(Number(m[3]), Number(m[1]) - 1, Number(m[2]), hour, Number(m[5]), Number(m[6]));\n  const formatter = new Intl.DateTimeFormat('en-US', { timeZone: 'Africa/Cairo', hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });\n  const offsetAt = (utc) => { const p = Object.fromEntries(formatter.formatToParts(new Date(utc)).filter(x => x.type !== 'literal').map(x => [x.type, Number(x.value)])); return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - utc; };\n  let utc = guess - offsetAt(guess); utc = guess - offsetAt(utc);\n  return new Date(utc).toISOString();\n}\nconst pages = [];\nfor (let i = 0; i < responses.length; i += 1) {\n  const response = responses[i]; const request = requests[i] || {};\n  if (Number(response.errcode) !== 0) throw new Error('Yeastar CDR search failed for ' + request.extension + ': ' + response.errmsg);\n  const data = response.data || [];\n  if (Number(response.total_number || 0) > data.length) throw new Error('CDR result exceeded 10,000 rows for extension ' + request.extension + '; paginate this extension before accepting the backfill.');\n  const calls = data.map(c => ({\n    call_id: String(c.uid || c.new_id || c.call_id || c.id), extension: String(request.extension),\n    user_id: request.user_id || null, direction: String(c.call_type || 'Outbound').toLowerCase(),\n    ring_sec: Number(c.ring_duration ?? c.routing_duration ?? 0),\n    talk_sec: Number(c.talk_duration ?? c.handling_duration ?? 0),\n    disposition: c.disposition || c.last_status || null, started_at: cairoIso(c.time),\n    from_number: c.call_from_number || request.extension, to_number: c.call_to_number || null,\n    remote_number: c.call_to_number || null, remote_normalized: digits(c.call_to_number),\n    call_duration_sec: Number(c.duration ?? c.call_duration ?? 0), recording_url: c.record_file || null,\n    trunk_name: c.dst_trunk || (Array.isArray(c.destination_trunks) ? c.destination_trunks[0] : null),\n    synced_at: new Date().toISOString()\n  })).filter(c => c.call_id && c.started_at);\n  pages.push({ json: { extension: request.extension, calls, source_total: Number(response.total_number || 0) } });\n}\nreturn pages;"
+        "jsCode": "\nconst responses = $input.all().map(i => i.json);\nconst requests = $('Make Extension Requests').all().map(i => i.json);\nconst digits = (v) => { const d = String(v || '').replace(/\\D/g, ''); return d ? d.slice(-10) : null; };\nfunction cairoIso(value) {\n  if (!value) return null;\n  const s = String(value).trim();\n  const m = s.match(/^(\\d{2})\\/(\\d{2})\\/(\\d{4})\\s+(\\d{1,2}):(\\d{2}):(\\d{2})\\s*(AM|PM)?$/i);\n  if (!m) return null;\n  let hour = Number(m[4]); const marker = (m[7] || '').toUpperCase();\n  if (marker === 'PM' && hour < 12) hour += 12;\n  if (marker === 'AM' && hour === 12) hour = 0;\n  const guess = Date.UTC(Number(m[3]), Number(m[1]) - 1, Number(m[2]), hour, Number(m[5]), Number(m[6]));\n  const formatter = new Intl.DateTimeFormat('en-US', { timeZone: 'Africa/Cairo', hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });\n  const offsetAt = (utc) => { const p = Object.fromEntries(formatter.formatToParts(new Date(utc)).filter(x => x.type !== 'literal').map(x => [x.type, Number(x.value)])); return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - utc; };\n  let utc = guess - offsetAt(guess); utc = guess - offsetAt(utc);\n  return new Date(utc).toISOString();\n}\nconst pages = [];\nconst warnings = [];\nfor (let i = 0; i < responses.length; i += 1) {\n  const response = responses[i]; const request = requests[i] || {};\n  if (Number(response.errcode) !== 0) {\n    warnings.push({ extension: request.extension, errcode: response.errcode, errmsg: response.errmsg || null });\n    continue;\n  }\n  const data = response.data || [];\n  if (Number(response.total_number || 0) > data.length) throw new Error('CDR result exceeded 10,000 rows for extension ' + request.extension + '; paginate this extension before accepting the backfill.');\n  const mappedCalls = data.map(c => ({\n    call_id: String(c.uid || c.new_id || c.call_id || c.id), extension: String(request.extension),\n    user_id: request.user_id || null, direction: String(c.call_type || 'Outbound').toLowerCase(),\n    ring_sec: Number(c.ring_duration ?? c.routing_duration ?? 0),\n    talk_sec: Number(c.talk_duration ?? c.handling_duration ?? 0),\n    disposition: c.disposition || c.last_status || null, started_at: cairoIso(c.time),\n    from_number: c.call_from_number || request.extension, to_number: c.call_to_number || null,\n    remote_number: c.call_to_number || null, remote_normalized: digits(c.call_to_number),\n    call_duration_sec: Number(c.duration ?? c.call_duration ?? 0), recording_url: c.record_file || null,\n    trunk_name: c.dst_trunk || (Array.isArray(c.destination_trunks) ? c.destination_trunks[0] : null),\n    synced_at: new Date().toISOString()\n  })).filter(c => c.call_id && c.started_at);\n  const bestByCall = new Map();\n  for (const call of mappedCalls) {\n    const previous = bestByCall.get(call.call_id);\n    const score = (String(call.disposition).toUpperCase() === 'ANSWERED' ? 1_000_000 : 0)\n      + (String(call.disposition).toUpperCase() === 'VOICEMAIL' ? 100_000 : 0)\n      + call.talk_sec * 1_000 + call.call_duration_sec;\n    const previousScore = previous\n      ? (String(previous.disposition).toUpperCase() === 'ANSWERED' ? 1_000_000 : 0)\n        + (String(previous.disposition).toUpperCase() === 'VOICEMAIL' ? 100_000 : 0)\n        + previous.talk_sec * 1_000 + previous.call_duration_sec\n      : -1;\n    if (!previous || score > previousScore) bestByCall.set(call.call_id, call);\n  }\n  const calls = [...bestByCall.values()];\n  for (let offset = 0; offset < calls.length; offset += 500) {\n    pages.push({ json: {\n      extension: request.extension,\n      calls: calls.slice(offset, offset + 500),\n      source_total: Number(response.total_number || 0),\n      batch: Math.floor(offset / 500) + 1,\n    } });\n  }\n}\nif (!pages.length) throw new Error('Yeastar CDR search failed for every mapped extension.');\npages[0].json.warnings = warnings;\nreturn pages;"
       },
-      "id": "code-085",
+      "id": "code-087",
       "name": "Build CDR Pages",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -211,7 +216,7 @@
           "timeout": 120000
         }
       },
-      "id": "http-086",
+      "id": "http-088",
       "name": "Upsert CDR Page",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,

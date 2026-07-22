@@ -68,7 +68,8 @@
           "id": "a2EBSJpQlmB0wr29",
           "name": "Odoo Live"
         }
-      }
+      },
+      "executeOnce": true
     },
     {
       "parameters": {
@@ -100,7 +101,8 @@
           "id": "a2EBSJpQlmB0wr29",
           "name": "Odoo Live"
         }
-      }
+      },
+      "executeOnce": true
     },
     {
       "parameters": {
@@ -123,7 +125,8 @@
           "id": "a2EBSJpQlmB0wr29",
           "name": "Odoo Live"
         }
-      }
+      },
+      "executeOnce": true
     },
     {
       "parameters": {

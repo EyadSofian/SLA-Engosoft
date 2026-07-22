@@ -42,7 +42,7 @@ function odoo(name, model, position, filter) {
   if (filter) parameters.filterRequest = { filter };
   return {
     parameters, id: id('odoo'), name, type: 'n8n-nodes-base.odoo', typeVersion: 1,
-    position, credentials: credential,
+    position, credentials: credential, executeOnce: true,
   };
 }
 
@@ -165,7 +165,10 @@ const crmBuild = String.raw`${isoHelpers}
 const stageWon = new Map(rows('Get CRM Stages').map(s => [s.id, !!s.is_won]));
 const excluded = /(moderation|accounting|accountant|مودريشن|محاسب)/i;
 const normalize = (v) => { const d = String(v || '').replace(/\D/g, ''); return d ? d.slice(-10) : null; };
-const leads = rows('Get CRM Leads').map(l => {
+const sourceLeads = [...new Map(
+  [...rows('Get CRM Leads'), ...rows('Get Lost CRM Leads')].map(l => [l.id, l])
+).values()];
+const leads = sourceLeads.map(l => {
   const user = rel(l.user_id); const team = rel(l.team_id); const stage = rel(l.stage_id);
   const won = stageWon.get(stage.id) === true || Number(l.probability) === 100;
   const active = l.active !== false;
@@ -204,10 +207,14 @@ function crm(kind, fromDate, suffix) {
   const leads = odoo('Get CRM Leads', 'crm.lead', [-20, 120], [
     { fieldName: 'write_date', operator: 'greaterOrEqual', value: "={{ $('Config').first().json.FROM_DATE }}" },
   ]);
-  const build = code('Build CRM', crmBuild, [200, 120]);
-  const putLeads = upsert('Upsert CRM Leads', 'fact_lead', '={{ JSON.stringify($json.leads) }}', [420, 120]);
-  const putRoster = upsert('Upsert Sales Roster', 'dim_salesperson', "={{ JSON.stringify($('Build CRM').first().json.roster) }}", [640, 120]);
-  const nodes = [start, cfg, stages, members, leads, build, putLeads, putRoster];
+  const lostLeads = odoo('Get Lost CRM Leads', 'crm.lead', [200, 120], [
+    { fieldName: 'write_date', operator: 'greaterOrEqual', value: "={{ $('Config').first().json.FROM_DATE }}" },
+    { fieldName: 'active', value: 'False' },
+  ]);
+  const build = code('Build CRM', crmBuild, [420, 120]);
+  const putLeads = upsert('Upsert CRM Leads', 'fact_lead', '={{ JSON.stringify($json.leads) }}', [640, 120]);
+  const putRoster = upsert('Upsert Sales Roster', 'dim_salesperson', "={{ JSON.stringify($('Build CRM').first().json.roster) }}", [860, 120]);
+  const nodes = [start, cfg, stages, members, leads, lostLeads, build, putLeads, putRoster];
   return workflow(`Engosoft — CRM ${suffix}`, nodes, chain(nodes.map(n => n.name)));
 }
 
@@ -287,7 +294,7 @@ function pbxExtensionSync() {
       options: { timeout: 30000 },
     },
     id: id('http'), name: 'Get Token', type: 'n8n-nodes-base.httpRequest', typeVersion: 4.2,
-    position: [-240, 120],
+    position: [-240, 120], executeOnce: true,
   };
   const getExtensions = {
     parameters: {
@@ -323,12 +330,16 @@ function cairoIso(value) {
   return new Date(utc).toISOString();
 }
 const pages = [];
+const warnings = [];
 for (let i = 0; i < responses.length; i += 1) {
   const response = responses[i]; const request = requests[i] || {};
-  if (Number(response.errcode) !== 0) throw new Error('Yeastar CDR search failed for ' + request.extension + ': ' + response.errmsg);
+  if (Number(response.errcode) !== 0) {
+    warnings.push({ extension: request.extension, errcode: response.errcode, errmsg: response.errmsg || null });
+    continue;
+  }
   const data = response.data || [];
   if (Number(response.total_number || 0) > data.length) throw new Error('CDR result exceeded 10,000 rows for extension ' + request.extension + '; paginate this extension before accepting the backfill.');
-  const calls = data.map(c => ({
+  const mappedCalls = data.map(c => ({
     call_id: String(c.uid || c.new_id || c.call_id || c.id), extension: String(request.extension),
     user_id: request.user_id || null, direction: String(c.call_type || 'Outbound').toLowerCase(),
     ring_sec: Number(c.ring_duration ?? c.routing_duration ?? 0),
@@ -340,8 +351,31 @@ for (let i = 0; i < responses.length; i += 1) {
     trunk_name: c.dst_trunk || (Array.isArray(c.destination_trunks) ? c.destination_trunks[0] : null),
     synced_at: new Date().toISOString()
   })).filter(c => c.call_id && c.started_at);
-  pages.push({ json: { extension: request.extension, calls, source_total: Number(response.total_number || 0) } });
+  const bestByCall = new Map();
+  for (const call of mappedCalls) {
+    const previous = bestByCall.get(call.call_id);
+    const score = (String(call.disposition).toUpperCase() === 'ANSWERED' ? 1_000_000 : 0)
+      + (String(call.disposition).toUpperCase() === 'VOICEMAIL' ? 100_000 : 0)
+      + call.talk_sec * 1_000 + call.call_duration_sec;
+    const previousScore = previous
+      ? (String(previous.disposition).toUpperCase() === 'ANSWERED' ? 1_000_000 : 0)
+        + (String(previous.disposition).toUpperCase() === 'VOICEMAIL' ? 100_000 : 0)
+        + previous.talk_sec * 1_000 + previous.call_duration_sec
+      : -1;
+    if (!previous || score > previousScore) bestByCall.set(call.call_id, call);
+  }
+  const calls = [...bestByCall.values()];
+  for (let offset = 0; offset < calls.length; offset += 500) {
+    pages.push({ json: {
+      extension: request.extension,
+      calls: calls.slice(offset, offset + 500),
+      source_total: Number(response.total_number || 0),
+      batch: Math.floor(offset / 500) + 1,
+    } });
+  }
 }
+if (!pages.length) throw new Error('Yeastar CDR search failed for every mapped extension.');
+pages[0].json.warnings = warnings;
 return pages;`;
 
 function pbxCdrBackfill() {
@@ -357,7 +391,7 @@ function pbxCdrBackfill() {
       sendHeaders: true, headerParameters: { parameters: [{ name: 'User-Agent', value: 'OpenAPI' }, { name: 'Content-Type', value: 'application/json' }] },
       sendBody: true, specifyBody: 'json', jsonBody: "={{ { username: $('Config').first().json.YEASTAR_USERNAME, password: $('Config').first().json.YEASTAR_PASSWORD } }}",
       options: { timeout: 30000 },
-    }, id: id('http'), name: 'Get Token', type: 'n8n-nodes-base.httpRequest', typeVersion: 4.2, position: [-460, 120],
+    }, id: id('http'), name: 'Get Token', type: 'n8n-nodes-base.httpRequest', typeVersion: 4.2, position: [-460, 120], executeOnce: true,
   };
   const getMap = {
     parameters: {
@@ -375,6 +409,7 @@ function pbxCdrBackfill() {
       sendHeaders: true, headerParameters: { parameters: [{ name: 'User-Agent', value: 'OpenAPI' }] },
       options: { timeout: 120000 },
     }, id: id('http'), name: 'Get CDR Per Extension', type: 'n8n-nodes-base.httpRequest', typeVersion: 4.2, position: [200, 120],
+    retryOnFail: true, maxTries: 3, waitBetweenTries: 5000, onError: 'continueRegularOutput',
   };
   const build = code('Build CDR Pages', cdrBackfillBuild, [420, 120]);
   const put = upsert('Upsert CDR Page', 'fact_call', '={{ JSON.stringify($json.calls) }}', [640, 120]);

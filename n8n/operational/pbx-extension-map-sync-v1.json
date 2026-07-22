@@ -12,7 +12,7 @@
           ]
         }
       },
-      "id": "schedule-061",
+      "id": "schedule-063",
       "name": "Schedule Trigger",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
@@ -26,31 +26,31 @@
         "assignments": {
           "assignments": [
             {
-              "id": "cfg-062",
+              "id": "cfg-064",
               "name": "SUPABASE_URL",
               "value": "https://jrenyjmbbizborhbwptz.supabase.co",
               "type": "string"
             },
             {
-              "id": "cfg-063",
+              "id": "cfg-065",
               "name": "SUPABASE_KEY",
               "value": "REPLACE_WITH_SUPABASE_SECRET_IN_N8N_ONLY",
               "type": "string"
             },
             {
-              "id": "cfg-064",
+              "id": "cfg-066",
               "name": "FROM_DATE",
               "value": "={{ new Date(Date.now() - 90*60000).toISOString().slice(0,19).replace('T',' ') }}",
               "type": "string"
             },
             {
-              "id": "cfg-066",
+              "id": "cfg-068",
               "name": "YEASTAR_USERNAME",
               "value": "REPLACE_WITH_YEASTAR_USERNAME_IN_N8N_ONLY",
               "type": "string"
             },
             {
-              "id": "cfg-067",
+              "id": "cfg-069",
               "name": "YEASTAR_PASSWORD",
               "value": "REPLACE_WITH_YEASTAR_PASSWORD_IN_N8N_ONLY",
               "type": "string"
@@ -59,7 +59,7 @@
         },
         "options": {}
       },
-      "id": "config-065",
+      "id": "config-067",
       "name": "Config",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
@@ -76,7 +76,7 @@
         "returnAll": true,
         "options": {}
       },
-      "id": "odoo-068",
+      "id": "odoo-070",
       "name": "Get Team Members",
       "type": "n8n-nodes-base.odoo",
       "typeVersion": 1,
@@ -89,7 +89,8 @@
           "id": "a2EBSJpQlmB0wr29",
           "name": "Odoo Live"
         }
-      }
+      },
+      "executeOnce": true
     },
     {
       "parameters": {
@@ -115,14 +116,15 @@
           "timeout": 30000
         }
       },
-      "id": "http-069",
+      "id": "http-071",
       "name": "Get Token",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
         -240,
         120
-      ]
+      ],
+      "executeOnce": true
     },
     {
       "parameters": {
@@ -140,7 +142,7 @@
           "timeout": 30000
         }
       },
-      "id": "http-070",
+      "id": "http-072",
       "name": "Get Extensions",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -153,7 +155,7 @@
       "parameters": {
         "jsCode": "\nconst members = $('Get Team Members').all().map(i => i.json).filter(r => r && r.id != null);\nconst extensionResponse = $('Get Extensions').first().json;\nif (Number(extensionResponse.errcode) !== 0) throw new Error('Yeastar extension/list failed: ' + extensionResponse.errmsg);\nconst byEmail = new Map();\nfor (const m of members) {\n  const email = String(m.email || '').trim().toLowerCase();\n  const user = Array.isArray(m.user_id) ? m.user_id : [];\n  if (email && user[0]) byEmail.set(email, { user_id: user[0], user_name: user[1] || String(user[0]) });\n}\nconst mappings = [];\nfor (const ext of extensionResponse.data || []) {\n  const email = String(ext.email_addr || '').trim().toLowerCase();\n  const member = byEmail.get(email);\n  if (!member || !ext.number) continue;\n  mappings.push({ extension: String(ext.number), user_id: member.user_id, user_name: member.user_name });\n}\nreturn [{ json: { mappings, matched: mappings.length, extensions: (extensionResponse.data || []).length } }];"
       },
-      "id": "code-071",
+      "id": "code-073",
       "name": "Build Extension Map",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -195,7 +197,7 @@
           "timeout": 120000
         }
       },
-      "id": "http-072",
+      "id": "http-074",
       "name": "Upsert Extension Map",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,

@@ -200,7 +200,7 @@ left join lateral (
 ) c on true;
 
 create or replace view public.sales_rep_monthly
-with (security_invoker = true) as
+with (security_invoker = false) as
 with months as (
   select generate_series(
     date '2026-01-01',
@@ -377,13 +377,25 @@ from public.fact_recruitment r;
 alter table public.dim_salesperson enable row level security;
 alter table public.fact_lead enable row level security;
 alter table public.fact_recruitment enable row level security;
+alter table public.fact_ticket enable row level security;
+alter table public.fact_sla enable row level security;
+alter table public.fact_sales_monthly enable row level security;
+alter table public.team_target_monthly enable row level security;
 
 drop policy if exists "anon read" on public.dim_salesperson;
 drop policy if exists "anon read" on public.fact_lead;
 drop policy if exists "anon read" on public.fact_recruitment;
+drop policy if exists "anon read" on public.fact_ticket;
+drop policy if exists "anon read" on public.fact_sla;
+drop policy if exists "anon read" on public.fact_sales_monthly;
+drop policy if exists "anon read" on public.team_target_monthly;
 create policy "anon read" on public.dim_salesperson for select to anon using (true);
 create policy "anon read" on public.fact_lead for select to anon using (true);
 create policy "anon read" on public.fact_recruitment for select to anon using (true);
+create policy "anon read" on public.fact_ticket for select to anon using (true);
+create policy "anon read" on public.fact_sla for select to anon using (true);
+create policy "anon read" on public.fact_sales_monthly for select to anon using (true);
+create policy "anon read" on public.team_target_monthly for select to anon using (true);
 
 grant select on public.fact_ticket, public.fact_sla, public.fact_call,
   public.fact_sales_monthly, public.team_target_monthly, public.dim_salesperson,
@@ -396,6 +408,6 @@ commit;
 
 -- Verification (expected immediately after migration):
 -- select count(*) from public.ticket_operational;
--- select count(*) from public.fact_call; -- v1 corrupt null rows are gone
+-- select count(*) from public.fact_call; -- legacy null rows stay preserved but are excluded from operational metrics
 -- select * from public.sales_rep_monthly order by month desc, user_name limit 20;
 -- select * from public.recruitment_operational limit 20;
